@@ -111,6 +111,9 @@ impl PlayerState {
             self.inventory.enchant_points += consts::ENCHANT_POINT_PER_LEVEL;
             leveled = true;
         }
+        if leveled {
+            super::audio::sfx(super::audio::Sfx::LevelUp);
+        }
         leveled
     }
 
@@ -197,6 +200,7 @@ pub fn update_player(game: &mut Game, idx: usize, input: &PlayerInput, dt: f32) 
             p.roll_cd = consts::ROLL_COOLDOWN;
             p.roll_dir = if input.mv.length_squared() > 0.01 { input.mv.normalize_or_zero() } else { p.forward() };
             p.iframes = p.iframes.max(consts::ROLL_TIME);
+            super::audio::sfx(super::audio::Sfx::Roll);
         }
         if p.roll_t > 0.0 {
             p.roll_t -= dt;
@@ -247,6 +251,7 @@ pub fn update_player(game: &mut Game, idx: usize, input: &PlayerInput, dt: f32) 
             p.attack_t = consts::SWING_TIME;
             p.swing_hit_done = false;
             p.attack_cd = 1.0 / spd;
+            super::audio::sfx(super::audio::Sfx::MeleeSwing);
         }
         if p.attack_t > 0.0 {
             p.attack_t -= dt;
@@ -269,6 +274,7 @@ pub fn update_player(game: &mut Game, idx: usize, input: &PlayerInput, dt: f32) 
         }
         if input.potion && p.potion_cd <= 0.0 && p.potions > 0 {
             acts.push(Act::Potion);
+            super::audio::sfx(super::audio::Sfx::Potion);
         }
         if input.interact {
             acts.push(Act::Interact);
@@ -297,6 +303,7 @@ pub fn update_player(game: &mut Game, idx: usize, input: &PlayerInput, dt: f32) 
                 if has && combat::use_artifact(game, idx, i) {
                     let p = &mut game.players[idx];
                     p.artifact_cd[i] = artifact_def(kind).cd * (1.0 - 0.01 * power as f32).max(0.7);
+                    super::audio::sfx(super::audio::Sfx::Artifact);
                 }
             }
             Act::Potion => {
@@ -379,9 +386,13 @@ fn melee_hit(game: &mut Game, idx: usize) {
     }
     let combo_mult = 1.0 + (combo as f32).min(consts::COMBO_MAX as f32) * consts::COMBO_STEP_MULT;
     let mut healed = false;
+    let mut crit_landed = false;
     for (e, _) in &hits {
         let mut rng = rand::thread_rng();
         let crit = rng.gen::<f32>() < crit_chance;
+        if crit {
+            crit_landed = true;
+        }
         let mut amount = dmg * combo_mult * if crit { consts::CRIT_MULT } else { 1.0 };
         amount *= rng.gen_range(0.92..1.08);
         let mut statuses = Vec::new();
@@ -429,6 +440,12 @@ fn melee_hit(game: &mut Game, idx: usize) {
     let p = &mut game.players[idx];
     p.combo = (p.combo + 1).min(consts::COMBO_MAX);
     p.combo_reset_t = 3.0;
+    // SFX d'impact après résolution (crit => variante dorée)
+    super::audio::sfx(if crit_landed {
+        super::audio::Sfx::Crit
+    } else {
+        super::audio::Sfx::MeleeHit
+    });
 }
 
 fn shoot_arrow(game: &mut Game, idx: usize) {
@@ -481,6 +498,7 @@ fn shoot_arrow(game: &mut Game, idx: usize) {
     let shot_pos = p.pos;
     let shot_yaw = p.yaw;
     game.particles.spawn_shot(shot_pos, shot_yaw);
+    super::audio::sfx(super::audio::Sfx::BowShoot);
     let n = if harvest { 5 } else { 1 };
     for k in 0..n {
         let spread = if n > 1 {

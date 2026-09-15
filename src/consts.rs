@@ -100,7 +100,7 @@ pub const LEVEL_H: u32 = 76;
 pub const BLOCK: f32 = 1.0;
 
 // ---------------- Audio (stub for v1) ----------------
-pub const AUDIO_ENABLED: bool = false;
+pub const AUDIO_ENABLED: bool = true;
 
 // ---------------- Lighting per-biome defaults live in world::gen ----------------
 pub const LIGHT_DIR: Vec3 = Vec3::new(0.45, -0.85, 0.28);

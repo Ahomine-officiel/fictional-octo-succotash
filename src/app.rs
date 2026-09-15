@@ -641,6 +641,7 @@ impl App {
                     self.show_controls = true;
                 }
                 if nav.confirm && !self.show_controls {
+                    super::game::audio::sfx(super::game::audio::Sfx::UiClick);
                     match self.sel {
                         0 => {
                             self.screen = Screen::Camp;
@@ -731,10 +732,12 @@ impl App {
                         self.inv_open = true;
                         self.inv_player = 0;
                         self.inv_sel = 0;
+                        super::game::audio::sfx(super::game::audio::Sfx::UiOpen);
                     }
                     // gamepad pause / inventory
                     if self.input.key_pressed(KeyCode::F1) {
                         self.inv_open = true;
+                        super::game::audio::sfx(super::game::audio::Sfx::UiOpen);
                     }
                 }
             }
@@ -923,6 +926,7 @@ impl App {
     }
 
     fn camp_activate(&mut self) {
+        super::game::audio::sfx(super::game::audio::Sfx::UiClick);
         let sel = self.sel;
         if sel < 4 {
             if sel == 3 {

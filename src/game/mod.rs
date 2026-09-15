@@ -54,6 +54,8 @@ pub struct Game {
     pub emeralds: u32,
     pub boss_entity: Option<hecs::Entity>,
     pub boss_phase: u32,
+    /// le boss a déjà rugi (une seule fois au premier dégât)
+    pub boss_roared: bool,
     pub state: RunState,
     pub captives_rescued: u32,
     pub rune_found: bool,
@@ -108,6 +110,7 @@ impl Game {
             emeralds: 0,
             boss_entity: None,
             boss_phase: 1,
+            boss_roared: false,
             state: RunState::Running,
             captives_rescued: 0,
             rune_found: false,
@@ -242,6 +245,7 @@ impl Game {
         if let Some((_, active)) = self.level.portal.as_mut() {
             if !*active && portal_open {
                 *active = true;
+                audio::sfx(audio::Sfx::Portal);
                 if let Some(pos) = self.level.portal.map(|(p, _)| p) {
                     self.particles.spawn_burst(Vec3::new(pos.x, 1.5, pos.y), 40, Vec4::new(0.5, 1.0, 0.9, 1.0), 5.0);
                 }

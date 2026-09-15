@@ -51,6 +51,7 @@ pub fn update_pickups(game: &mut Game, dt: f32) {
         match kind {
             PickupKind::Emerald(n) => {
                 game.emeralds += n;
+                super::audio::sfx(super::audio::Sfx::Emerald);
             }
             PickupKind::Arrows(n) => {
                 if let Some(p) = game.players.first_mut() {
@@ -78,6 +79,9 @@ pub fn update_pickups(game: &mut Game, dt: f32) {
                 }
                 if !given {
                     game.emeralds += 5; // inventory full -> auto salvage
+                }
+                if given {
+                    super::audio::sfx(super::audio::Sfx::UiOpen);
                 }
             }
         }
@@ -109,6 +113,7 @@ pub fn try_interact(game: &mut Game, pidx: usize) {
                 Some(Decor::Chest { opened: false }) => {
                     game.level.tiles[i].decor = Some(Decor::Chest { opened: true });
                     game.opened.insert((tx, ty));
+                    super::audio::sfx(super::audio::Sfx::Chest);
                     let mut rng = rand::thread_rng();
                     let emeralds = rng.gen_range(consts::CHEST_EMERALDS.0..=consts::CHEST_EMERALDS.1);
                     game.pickups.push(super::combat::Pickup {
@@ -140,6 +145,7 @@ pub fn try_interact(game: &mut Game, pidx: usize) {
                 Some(Decor::Lever { pulled: false }) => {
                     game.level.tiles[i].decor = Some(Decor::Lever { pulled: true });
                     game.level.open_secret();
+                    super::audio::sfx(super::audio::Sfx::Artifact);
                     game.particles.spawn_burst(center, 20, glam::Vec4::new(0.4, 0.9, 0.7, 1.0), 3.0);
                     game.floaters.push(super::combat::Floater {
                         pos: center,
@@ -152,6 +158,7 @@ pub fn try_interact(game: &mut Game, pidx: usize) {
                 Some(Decor::Rune { taken: false }) => {
                     game.level.tiles[i].decor = Some(Decor::Rune { taken: true });
                     game.rune_found = true;
+                    super::audio::sfx(super::audio::Sfx::LevelUp);
                     for p in game.players.iter_mut() {
                         p.add_xp(15);
                     }

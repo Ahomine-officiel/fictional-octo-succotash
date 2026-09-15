@@ -351,6 +351,15 @@ pub fn damage_enemy(
             }
         }
     }
+    // SFX : rugissement de boss (premier coup subi) + mort d'ennemi
+    if Some(e) == game.boss_entity && !game.boss_roared {
+        game.boss_roared = true;
+        game.shake = (game.shake + 0.3).min(0.55);
+        super::audio::sfx(super::audio::Sfx::BossRoar);
+    }
+    if died {
+        super::audio::sfx(super::audio::Sfx::EnemyDie);
+    }
 
     game.floaters.push(Floater {
         pos: Vec3::new(fpos.x, 1.8, fpos.y),
@@ -366,6 +375,8 @@ pub fn damage_enemy(
     );
     if arch_transform {
         game.boss_phase = 2;
+        game.shake = (game.shake + 0.35).min(0.55);
+        super::audio::sfx(super::audio::Sfx::BossRoar);
         game.particles.spawn_burst(Vec3::new(fpos.x, 1.5, fpos.y), 40, Vec4::new(0.4, 0.1, 0.6, 1.0), 5.0);
         game.particles.spawn_ring(Vec3::new(fpos.x, 0.3, fpos.y), 3.0, 24, Vec4::new(0.6, 0.2, 0.8, 0.9));
         game.floaters.push(Floater {
@@ -390,6 +401,9 @@ pub fn damage_player(game: &mut Game, idx: usize, amount: f32, from: Vec2) {
     }
     p.hp -= amount;
     p.iframes = consts::HIT_IFRAME;
+    // screen shake proportionnel au coup (plus fort quand le héros tombe)
+    game.shake = (game.shake + 0.10 + amount * 0.004).min(0.5);
+    super::audio::sfx(super::audio::Sfx::PlayerHurt);
     game.floaters.push(Floater {
         pos: Vec3::new(p.pos.x, 2.0, p.pos.y),
         text: format!("-{}", amount as i32),
@@ -402,6 +416,7 @@ pub fn damage_player(game: &mut Game, idx: usize, amount: f32, from: Vec2) {
     if p.hp <= 0.0 {
         p.hp = 0.0;
         p.downed_t = Some(consts::DOWNED_TIME);
+        game.shake = (game.shake + 0.35).min(0.55);
         game.particles.spawn_burst(Vec3::new(p.pos.x, 1.2, p.pos.y), 20, Vec4::new(0.9, 0.2, 0.2, 1.0), 3.0);
         if game.players.iter().all(|p| p.downed_t.is_some()) {
             game.state = RunState::Failed;
