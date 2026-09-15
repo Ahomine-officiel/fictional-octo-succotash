@@ -364,11 +364,11 @@ fn lerp4(a: [f32; 4], b: [f32; 4], t: f32) -> [f32; 4] {
 // HUD console MCD (captures 83444 / 80056 / 23197)
 // ----------------------------------------------------------------------
 
-pub fn draw_hud(ui: &mut Ui, game: &Game, cam: &Camera) -> Vec<Rect> {
+pub fn draw_hud(ui: &mut Ui, game: &Game, cam: &Camera, pi: usize, scheme: &ChipScheme) -> Vec<Rect> {
     let s = ui.scale();
     let rects: Vec<Rect> = Vec::new();
     let m = &crate::world::missions::MISSIONS[game.mission_id];
-    let p = match game.players.first() {
+    let p = match game.players.get(pi) {
         Some(p) => p,
         None => return rects,
     };
@@ -468,8 +468,9 @@ pub fn draw_hud(ui: &mut Ui, game: &Game, cam: &Camera) -> Vec<Rect> {
         }
         x += bw + 10.0 * s;
     }
-    // 3) artefacts 1/2/3 avec pastilles à cheval sur le bas
-    if let Some(pl) = game.players.first() {
+    // 3) artefacts (touches du schéma du joueur) avec pastilles à cheval sur le bas
+    {
+        let pl = p;
         for (i, slot) in pl.inventory.artifacts.iter().enumerate() {
             let bw = 64.0 * s;
             ui.rounded(x, by, bw, bh, 10.0 * s, [0.02, 0.02, 0.03, 0.55]);
@@ -486,7 +487,7 @@ pub fn draw_hud(ui: &mut Ui, game: &Game, cam: &Camera) -> Vec<Rect> {
                     ui.rect(x, by, bw, bh * (cd / maxcd).clamp(0.0, 1.0), [0.0, 0.0, 0.0, 0.6]);
                 }
             }
-            let key = ["1", "2", "3"][i];
+            let key = scheme.artifacts[i];
             let cw = ui.measure(key, SIZE_SMALL) + 14.0 * s;
             pad_chip(ui, x + bw / 2.0 - cw / 2.0, by + bh - 2.0 * s, key, 4);
             x += bw + 10.0 * s;
@@ -526,8 +527,8 @@ pub fn draw_hud(ui: &mut Ui, game: &Game, cam: &Camera) -> Vec<Rect> {
             let cd = p.potion_cd / crate::consts::POTION_COOLDOWN;
             ui.rect(x, by, bw, bh * cd, [0.0, 0.0, 0.0, 0.6]);
         }
-        let cw = ui.measure("LB", SIZE_SMALL) + 14.0 * s;
-        pad_chip(ui, x + bw / 2.0 - cw / 2.0, by + bh - 2.0 * s, "LB", 4);
+        let cw = ui.measure(scheme.potion, SIZE_SMALL) + 14.0 * s;
+        pad_chip(ui, x + bw / 2.0 - cw / 2.0, by + bh - 2.0 * s, scheme.potion, 4);
         x += bw + 10.0 * s;
     }
     // 6) arc (RB) + flèches AU-DESSUS + émeraude à droite
@@ -541,8 +542,8 @@ pub fn draw_hud(ui: &mut Ui, game: &Game, cam: &Camera) -> Vec<Rect> {
         ui.rounded(x, by, bw, bh, 10.0 * s, [0.02, 0.02, 0.03, 0.55]);
         ui.rounded(x + 3.0 * s, by + 3.0 * s, bw - 6.0 * s, bh - 6.0 * s, 8.0 * s, [0.08, 0.09, 0.12, 0.6]);
         ui.icon("icon_bow", x + 16.0 * s, by + 20.0 * s, 40.0 * s, WHITE);
-        let cw = ui.measure("RB", SIZE_SMALL) + 14.0 * s;
-        pad_chip(ui, x + bw / 2.0 - cw / 2.0, by + bh - 2.0 * s, "RB", 4);
+        let cw = ui.measure(scheme.bow, SIZE_SMALL) + 14.0 * s;
+        pad_chip(ui, x + bw / 2.0 - cw / 2.0, by + bh - 2.0 * s, scheme.bow, 4);
         x += bw + 12.0 * s;
         // émeraude HORS bloc, compte vert
         ui.icon("icon_emerald", x + 2.0 * s, by + 26.0 * s, 32.0 * s, WHITE);
@@ -550,8 +551,50 @@ pub fn draw_hud(ui: &mut Ui, game: &Game, cam: &Camera) -> Vec<Rect> {
         ui.text_bold(&em, x + 40.0 * s, by + 32.0 * s, SIZE_SMALL, [0.35, 0.9, 0.45, 1.0]);
     }
 
+    // ---- barre de BOSS (haut centre) : nom + PV rouges façon MCD ----
+    if let Some(be) = game.boss_entity {
+        if let Ok(hp) = game.world.get::<&crate::game::Health>(be) {
+            if hp.hp > 0.0 && hp.hp < hp.max {
+                let frac = (hp.hp / hp.max).clamp(0.0, 1.0);
+                drop(hp);
+                let bw = (ui.w * 0.52).max(220.0 * s);
+                let bx = (ui.w - bw) / 2.0;
+                let by = 12.0 * s;
+                ui.rect(bx - 3.0, by - 3.0, bw + 6.0, 22.0 * s + 6.0, [0.0, 0.0, 0.0, 0.78]);
+                ui.rect(bx, by, bw, 22.0 * s, [0.14, 0.05, 0.06, 0.92]);
+                ui.rect(bx, by, bw * frac, 22.0 * s, [0.78, 0.12, 0.12, 1.0]);
+                ui.rect(bx, by, bw * frac, 5.0 * s, [1.0, 0.42, 0.35, 1.0]);
+                if let Some(name) = game.boss_name() {
+                    let nw = ui.measure(name, SIZE_SMALL);
+                    ui.text_bold(name, bx + bw / 2.0 - nw / 2.0, by + 5.0 * s, SIZE_SMALL, WHITE);
+                }
+            }
+        }
+    }
+
+    // ---- bannière « À TERRE » (ce héros est à terre : timer + résurrection) ----
+    if let Some(dtm) = p.downed_t {
+        let coop = game.players.len() > 1;
+        let msg = if coop { "À TERRE ! Un allié doit venir te relever" } else { "À TERRE !" };
+        let bwid = ui.measure(msg, SIZE_SMALL) + 56.0 * s;
+        let bx = (ui.w - bwid) / 2.0;
+        let by2 = ui.h * 0.42;
+        ui.rect(bx, by2, bwid, 84.0 * s, [0.14, 0.02, 0.03, 0.82]);
+        ui.rect(bx, by2, bwid, 3.0 * s, [0.92, 0.16, 0.3, 0.9]);
+        ui.rect(bx, by2 + 81.0 * s, bwid, 3.0 * s, [0.92, 0.16, 0.3, 0.9]);
+        ui.text_bold(msg, (ui.w - ui.measure(msg, SIZE_SMALL)) / 2.0, by2 + 12.0 * s, SIZE_SMALL, WHITE);
+        let tmsg = format!("Respawn dans {} s", dtm.ceil() as i32);
+        let tw2 = ui.measure(&tmsg, SIZE_SMALL);
+        ui.text(&tmsg, (ui.w - tw2) / 2.0, by2 + 36.0 * s, SIZE_SMALL, DIM2);
+        if coop && p.revive_progress > 0.0 {
+            let rw = bwid - 40.0 * s;
+            ui.bar(bx + 20.0 * s, by2 + 60.0 * s, rw, 12.0 * s,
+                (p.revive_progress / 3.0).clamp(0.0, 1.0), [0.35, 0.9, 0.45, 1.0], [0.1, 0.14, 0.1, 1.0]);
+        }
+    }
+
     // ---- popup d'interaction central (sombre, style MCD) ----
-    if let Some((msg, _)) = interact_hint(game) {
+    if let Some((msg, _)) = interact_hint(game, pi, scheme.interact) {
         let bwid = ui.measure(&msg, SIZE_SMALL) + 44.0 * s;
         let bx = (ui.w - bwid) / 2.0;
         let by2 = ui.h * 0.66;
@@ -567,18 +610,73 @@ pub fn draw_hud(ui: &mut Ui, game: &Game, cam: &Camera) -> Vec<Rect> {
 const SIZE_LOGO_HUD: usize = 1; // ~24 px (taille intermédiaire de la glyphe cache)
 const DIM2: [f32; 4] = [0.75, 0.75, 0.8, 1.0];
 
-/// Indication d'interaction central (portail / captif) — version HUD console.
-fn interact_hint(game: &Game) -> Option<(String, f32)> {
-    let p = game.players.first()?;
+// ----------------------------------------------------------------------
+// Schémas de touches affichés dans le HUD (chips artefacts / potion / arc)
+// ----------------------------------------------------------------------
+
+pub struct ChipScheme {
+    pub artifacts: [&'static str; 3],
+    pub potion: &'static str,
+    pub bow: &'static str,
+    pub interact: &'static str,
+}
+
+/// J1 : clavier + souris.
+pub const SCHEME_P1: ChipScheme = ChipScheme {
+    artifacts: ["1", "2", "3"],
+    potion: "F",
+    bow: "CD",
+    interact: "E",
+};
+
+/// J2 : manette (chips console) ou clavier (libellés stables AZERTY/QWERTY).
+pub fn scheme_p2(pad: bool) -> ChipScheme {
+    if pad {
+        ChipScheme {
+            artifacts: ["X", "Y", "L2"],
+            potion: "LB",
+            bow: "RB",
+            interact: "Haut",
+        }
+    } else {
+        ChipScheme {
+            artifacts: ["J", "K", "L"],
+            potion: "H",
+            bow: "O",
+            interact: "Y",
+        }
+    }
+}
+
+/// Pastille « Joueur 1 / Joueur 2 » en haut à gauche de chaque moitié
+/// (or pour J1, cramoisi pour J2 — les mêmes couleurs que l'anneau au sol).
+pub fn draw_player_tag(ui: &mut Ui, pi: usize, _time: f32) {
+    let s = ui.scale();
+    let (txt, col) = if pi == 0 {
+        ("JOUEUR 1", [1.0, 0.78, 0.16, 1.0])
+    } else {
+        ("JOUEUR 2", [0.92, 0.16, 0.3, 1.0])
+    };
+    let w = ui.measure(txt, SIZE_SMALL) + 46.0 * s;
+    ui.rect(10.0 * s, 10.0 * s, w, 34.0 * s, [0.02, 0.02, 0.03, 0.62]);
+    ui.rect(10.0 * s, 10.0 * s, 4.0 * s, 34.0 * s, col);
+    draw_diamond(ui, 10.0 * s + 18.0 * s, 10.0 * s + 17.0 * s, 7.0 * s, col);
+    ui.text_bold(txt, 10.0 * s + 32.0 * s, 10.0 * s + 10.0 * s, SIZE_SMALL, WHITE);
+}
+
+/// Indication d'interaction central (portail / captif) — version HUD console,
+/// paramétrée par joueur + touche d'interaction du schéma de contrôle.
+fn interact_hint(game: &Game, pi: usize, key: &str) -> Option<(String, f32)> {
+    let p = game.players.get(pi)?;
     let dist = |a: glam::Vec2, b: glam::Vec2| (a - b).length();
     if let Some((ppos, active)) = game.level.portal {
         if active && dist(p.pos, ppos) < 3.0 {
-            return Some(("Appuyez sur E — Entrer dans le portail".to_string(), 0.0));
+            return Some((format!("Appuyez sur {} — Entrer dans le portail", key), 0.0));
         }
     }
     for c in &game.level.captives {
         if dist(p.pos, *c) < 2.6 {
-            return Some(("Maintenez E — Libérer le villageois".to_string(), 0.0));
+            return Some((format!("Maintenez {} — Libérer le villageois", key), 0.0));
         }
     }
     None

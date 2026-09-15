@@ -126,6 +126,9 @@ pub struct FrameData {
     pub quads: Vec<QuadInstance>,
     pub text: Vec<QuadInstance>,
     pub cam: CameraUniform,
+    /// Some = écran scindé : la moitié DROITE est rendue avec cette caméra
+    /// (moitié gauche = `cam`). Les deux moitiés partagent le même niveau.
+    pub cam2: Option<CameraUniform>,
 }
 
 impl Default for FrameData {
@@ -142,6 +145,7 @@ impl Default for FrameData {
                 fogcolor: [0.5, 0.7, 0.9, 1.0],
                 fogrange: [30.0, 90.0, 0.0, 0.0],
             },
+            cam2: None,
         }
     }
 }
@@ -424,6 +428,8 @@ pub struct Gfx {
     quad_pipeline: wgpu::RenderPipeline,
 
     cam_bg: wgpu::BindGroup,
+    /// même buffer uniform, entrée à l'offset 256 (caméra J2 écran scindé)
+    cam_bg2: wgpu::BindGroup,
     ui_bg: wgpu::BindGroup,
     pub atlas_bg: wgpu::BindGroup,
     pub skin_bg: wgpu::BindGroup,
@@ -726,16 +732,24 @@ impl Gfx {
         let glyph_bg = Self::tex_bind_group(&device, &queue, &bgl_tex, &sampler, &glyphs.image);
 
         // uniform buffers + bind groups
-        let cam_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        // cam_buf = 2 entrées de 256 octets : [0] caméra J1, [256] caméra J2
+        // (l'alignement 256 respecte minUniformBufferOffsetAlignment)
+        let cam_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("cam-buf"),
-            contents: bytemuck::bytes_of(&CameraUniform {
+            size: 512,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        {
+            let init = CameraUniform {
                 vp: Mat4::IDENTITY.to_cols_array_2d(),
                 campos: [0.0; 4],
                 fogcolor: [0.5, 0.7, 0.9, 1.0],
                 fogrange: [30.0, 90.0, 0.0, 0.0],
-            }),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+            };
+            queue.write_buffer(&cam_buf, 0, bytemuck::bytes_of(&init));
+            queue.write_buffer(&cam_buf, 256, bytemuck::bytes_of(&init));
+        }
         let ui_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("ui-buf"),
             contents: bytemuck::bytes_of(&UiUniform {
@@ -749,7 +763,29 @@ impl Gfx {
             layout: &bgl_uniform,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: cam_buf.as_entire_binding(),
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &cam_buf,
+                    offset: 0,
+                    size: Some(std::num::NonZeroU64::new(
+                        std::mem::size_of::<CameraUniform>() as u64
+                    )
+                    .unwrap()),
+                }),
+            }],
+        });
+        let cam_bg2 = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("cam-bg2"),
+            layout: &bgl_uniform,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &cam_buf,
+                    offset: 256,
+                    size: Some(std::num::NonZeroU64::new(
+                        std::mem::size_of::<CameraUniform>() as u64
+                    )
+                    .unwrap()),
+                }),
             }],
         });
         let ui_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -787,6 +823,7 @@ impl Gfx {
             billboard_pipeline,
             quad_pipeline,
             cam_bg,
+            cam_bg2,
             ui_bg,
             atlas_bg,
             skin_bg,
@@ -897,6 +934,29 @@ impl Gfx {
         buffer
     }
 
+    /// Dessine toute la géométrie monde avec la caméra (bind group) donnée.
+    /// Appelé 1× (plein écran) ou 2× (écran scindé, un par moitié).
+    fn draw_world<'r>(&self, pass: &mut wgpu::RenderPass<'r>, data: &FrameData, cam: &'r wgpu::BindGroup) {
+        pass.set_pipeline(&self.box_pipeline);
+        pass.set_bind_group(0, cam, &[]);
+        if !data.boxes_atlas.is_empty() {
+            pass.set_bind_group(1, &self.atlas_bg, &[]);
+            pass.set_vertex_buffer(0, self.box_atlas_buf.slice(..));
+            pass.draw(0..36, 0..data.boxes_atlas.len() as u32);
+        }
+        if !data.boxes_skin.is_empty() {
+            pass.set_bind_group(1, &self.skin_bg, &[]);
+            pass.set_vertex_buffer(0, self.box_skin_buf.slice(..));
+            pass.draw(0..36, 0..data.boxes_skin.len() as u32);
+        }
+        if !data.billboards.is_empty() {
+            pass.set_pipeline(&self.billboard_pipeline);
+            pass.set_bind_group(0, cam, &[]);
+            pass.set_vertex_buffer(0, self.billboard_buf.slice(..));
+            pass.draw(0..6, 0..data.billboards.len() as u32);
+        }
+    }
+
     pub fn render(&mut self, data: &mut FrameData) {
         let frame = match self.surface.get_current_texture() {
             Ok(f) => f,
@@ -936,8 +996,10 @@ impl Gfx {
             &view
         };
 
-        // upload uniforms
+        // upload uniforms (0 = caméra J1, 256 = caméra J2 pour l'écran scindé)
         self.queue.write_buffer(&self.cam_buf, 0, bytemuck::bytes_of(&data.cam));
+        let cam2u = data.cam2.unwrap_or(data.cam);
+        self.queue.write_buffer(&self.cam_buf, 256, bytemuck::bytes_of(&cam2u));
         self.queue.write_buffer(
             &self.ui_buf,
             0,
@@ -998,25 +1060,27 @@ impl Gfx {
                 occlusion_query_set: None,
             });
 
-            // ---- world: boxes ----
-            pass.set_pipeline(&self.box_pipeline);
-            pass.set_bind_group(0, &self.cam_bg, &[]);
-            if !data.boxes_atlas.is_empty() {
-                pass.set_bind_group(1, &self.atlas_bg, &[]);
-                pass.set_vertex_buffer(0, self.box_atlas_buf.slice(..));
-                pass.draw(0..36, 0..data.boxes_atlas.len() as u32);
-            }
-            if !data.boxes_skin.is_empty() {
-                pass.set_bind_group(1, &self.skin_bg, &[]);
-                pass.set_vertex_buffer(0, self.box_skin_buf.slice(..));
-                pass.draw(0..36, 0..data.boxes_skin.len() as u32);
-            }
-            // ---- world: billboards ----
-            if !data.billboards.is_empty() {
-                pass.set_pipeline(&self.billboard_pipeline);
-                pass.set_bind_group(0, &self.cam_bg, &[]);
-                pass.set_vertex_buffer(0, self.billboard_buf.slice(..));
-                pass.draw(0..6, 0..data.billboards.len() as u32);
+            // ---- world: boxes + billboards ----
+            // Écran scindé : deux viewports/scissors DISJOINTS dans le même
+            // render pass. Chaque moitié n'écrit que ses pixels (profondeur
+            // incluse), donc aucune clôture de depth intermédiaire n'est
+            // nécessaire : on change juste de bind group caméra.
+            match data.cam2.is_some() {
+                true => {
+                    let (w, h) = self.size;
+                    let half = (w / 2).max(1) as f32;
+                    let hw = h as f32;
+                    pass.set_viewport(0.0, 0.0, half, hw, 0.0, 1.0);
+                    pass.set_scissor_rect(0, 0, half as u32, h);
+                    self.draw_world(&mut pass, data, &self.cam_bg);
+                    let rw = w as f32 - half;
+                    pass.set_viewport(half, 0.0, rw, hw, 0.0, 1.0);
+                    pass.set_scissor_rect(half as u32, 0, rw as u32, h);
+                    self.draw_world(&mut pass, data, &self.cam_bg2);
+                }
+                false => {
+                    self.draw_world(&mut pass, data, &self.cam_bg);
+                }
             }
         }
 

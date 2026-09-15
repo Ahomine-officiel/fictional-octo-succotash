@@ -1,5 +1,7 @@
-//! Input layer: keyboard/mouse (P1) + gamepad via gilrs (P2), UI navigation.
-//! KeyCode is physical, so WASD works on AZERTY as ZQSD automatically.
+//! Input layer: keyboard/mouse (P1) + P2 (manette OU clavier flèches+cluster
+//! droit), UI navigation. KeyCode is physical, so WASD works on AZERTY as ZQSD
+//! automatically, and the P2 keys are chosen with labels stable across layouts
+//! (U O P J K L H Y + flèches).
 
 use winit::event::{ElementState, MouseButton};
 use winit::keyboard::KeyCode;
@@ -25,6 +27,33 @@ pub struct UINav {
     pub cancel: bool,
 }
 
+/// État d'UNE manette (indexée par son id gilrs) — chaque manette pilote son
+/// propre joueur au lieu de tout fusionner.
+#[derive(Default)]
+pub struct PadState {
+    pub mv: glam::Vec2,
+    buttons: std::collections::HashSet<u16>,
+    pressed: std::collections::HashSet<u16>,
+}
+
+impl PadState {
+    fn snapshot(&self) -> PlayerInput {
+        PlayerInput {
+            mv: self.mv,
+            melee: self.buttons.contains(&GP_SOUTH),
+            ranged: self.buttons.contains(&GP_EAST),
+            roll: self.buttons.contains(&GP_RB),
+            artifacts: [
+                self.pressed.contains(&GP_WEST),  // X
+                self.pressed.contains(&GP_NORTH), // Y
+                self.pressed.contains(&GP_LT2),   // L2
+            ],
+            potion: self.pressed.contains(&GP_LB),
+            interact: self.pressed.contains(&GP_DPAD_UP),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Input {
     keys: std::collections::HashSet<KeyCode>,
@@ -34,7 +63,9 @@ pub struct Input {
     mouse_pressed: [bool; 2],
     pub mouse_pos: (f32, f32),
     pub gamepad_count: usize,
-    // gamepad state
+    /// état PAR manette (index = id gilrs) — manette 0 => P2
+    pub pads: Vec<PadState>,
+    // état fusionné de toutes les manettes (menus / rétrocompatibilité)
     pad_move: glam::Vec2,
     pad_buttons: std::collections::HashSet<u16>,
     pad_pressed: std::collections::HashSet<u16>,
@@ -117,8 +148,8 @@ impl Input {
         const DEAD: f32 = 0.22;
         let v = if value.abs() < DEAD { 0.0 } else { value };
         match axis {
-            0 => self.pad_move.x = v,                    // LeftStickX
-            1 => self.pad_move.y = -v,                   // LeftStickY (screen-up positive)
+            0 => self.pad_move.x = v,  // LeftStickX
+            1 => self.pad_move.y = -v, // LeftStickY (screen-up positive)
             _ => {}
         }
     }
@@ -127,15 +158,39 @@ impl Input {
         self.pressed.clear();
         self.mouse_pressed = [false, false];
         self.pad_pressed.clear();
+        for p in &mut self.pads {
+            p.pressed.clear();
+        }
     }
 
-    /// P1: keyboard + mouse.
-    pub fn p1_input(&self) -> PlayerInput {
+    /// P1: keyboard + mouse. Quand le P2 clavier est actif, les flèches lui
+    /// appartiennent (déplacement J2) et ne pilotent plus P1.
+    pub fn p1_input(&self, p2_keyboard: bool) -> PlayerInput {
         let mut mv = glam::Vec2::ZERO;
-        if self.key(KeyCode::KeyW) || self.key(KeyCode::ArrowUp) { mv.y -= 1.0; }
-        if self.key(KeyCode::KeyS) || self.key(KeyCode::ArrowDown) { mv.y += 1.0; }
-        if self.key(KeyCode::KeyA) || self.key(KeyCode::ArrowLeft) { mv.x -= 1.0; }
-        if self.key(KeyCode::KeyD) || self.key(KeyCode::ArrowRight) { mv.x += 1.0; }
+        if !p2_keyboard && self.key(KeyCode::ArrowUp) {
+            mv.y -= 1.0;
+        }
+        if !p2_keyboard && self.key(KeyCode::ArrowDown) {
+            mv.y += 1.0;
+        }
+        if !p2_keyboard && self.key(KeyCode::ArrowLeft) {
+            mv.x -= 1.0;
+        }
+        if !p2_keyboard && self.key(KeyCode::ArrowRight) {
+            mv.x += 1.0;
+        }
+        if self.key(KeyCode::KeyW) {
+            mv.y -= 1.0;
+        }
+        if self.key(KeyCode::KeyS) {
+            mv.y += 1.0;
+        }
+        if self.key(KeyCode::KeyA) {
+            mv.x -= 1.0;
+        }
+        if self.key(KeyCode::KeyD) {
+            mv.x += 1.0;
+        }
         PlayerInput {
             mv: mv.normalize_or_zero(),
             melee: self.mouse_down(0),
@@ -151,24 +206,48 @@ impl Input {
         }
     }
 
-    /// P2: first gamepad (mirrors MCD default layout).
-    pub fn p2_input(&self) -> Option<PlayerInput> {
-        if self.gamepad_count == 0 {
-            return None;
+    /// P2 clavier : flèches = déplacement, cluster droit = actions.
+    ///Touches à libellé stable AZERTY/QWERTY (U O P J K L H Y).
+    fn p2kb_input(&self) -> PlayerInput {
+        let mut mv = glam::Vec2::ZERO;
+        if self.key(KeyCode::ArrowUp) {
+            mv.y -= 1.0;
         }
-        Some(PlayerInput {
-            mv: self.pad_move,
-            melee: self.pad_buttons.contains(&GP_SOUTH),
-            ranged: self.pad_buttons.contains(&GP_EAST),
-            roll: self.pad_buttons.contains(&GP_RB),
+        if self.key(KeyCode::ArrowDown) {
+            mv.y += 1.0;
+        }
+        if self.key(KeyCode::ArrowLeft) {
+            mv.x -= 1.0;
+        }
+        if self.key(KeyCode::ArrowRight) {
+            mv.x += 1.0;
+        }
+        PlayerInput {
+            mv: mv.normalize_or_zero(),
+            melee: self.key(KeyCode::KeyU),
+            ranged: self.key(KeyCode::KeyO),
+            roll: self.key(KeyCode::KeyP),
             artifacts: [
-                self.pad_pressed.contains(&GP_WEST),      // X
-                self.pad_pressed.contains(&GP_NORTH),     // Y
-                self.pad_pressed.contains(&GP_LT2),       // L2
+                self.key_pressed(KeyCode::KeyJ),
+                self.key_pressed(KeyCode::KeyK),
+                self.key_pressed(KeyCode::KeyL),
             ],
-            potion: self.pad_pressed.contains(&GP_LB),
-            interact: self.pad_pressed.contains(&GP_DPAD_UP),
-        })
+            potion: self.key_pressed(KeyCode::KeyH),
+            interact: self.key_pressed(KeyCode::KeyY),
+        }
+    }
+
+    /// P2: première manette disponible, sinon clavier (flèches + U/O/P...).
+    pub fn p2_input(&self) -> PlayerInput {
+        if let Some(pad) = self.pads.first() {
+            return pad.snapshot();
+        }
+        self.p2kb_input()
+    }
+
+    /// Le P2 a-t-il une manette ? (pour les chips HUD adaptées)
+    pub fn p2_on_pad(&self) -> bool {
+        !self.pads.is_empty()
     }
 
     pub fn ui_nav(&self) -> UINav {
@@ -193,7 +272,6 @@ impl Input {
     pub fn poll_gamepads(&mut self, gilrs: &mut Option<gilrs::Gilrs>) {
         if let Some(g) = gilrs {
             while let Some(gilrs::Event { id, event, .. }) = g.next_event() {
-                let _ = id;
                 let map_btn = |b: gilrs::Button| -> Option<u16> {
                     Some(match b {
                         gilrs::Button::South => GP_SOUTH,
@@ -213,15 +291,23 @@ impl Input {
                         _ => return None,
                     })
                 };
+                // route per-pad (pads[0] = P2), plus agrégat pour les menus
+                let pi: usize = id.into();
+                if self.pads.len() <= pi {
+                    self.pads.resize_with(pi + 1, PadState::default);
+                }
                 match event {
                     gilrs::EventType::ButtonPressed(b, _code) => {
                         if let Some(c) = map_btn(b) {
                             self.on_gamepad_button(ElementState::Pressed, c);
+                            self.pads[pi].pressed.insert(c);
+                            self.pads[pi].buttons.insert(c);
                         }
                     }
                     gilrs::EventType::ButtonReleased(b, _code) => {
                         if let Some(c) = map_btn(b) {
                             self.on_gamepad_button(ElementState::Released, c);
+                            self.pads[pi].buttons.remove(&c);
                         }
                     }
                     gilrs::EventType::AxisChanged(axis, value, _code) => {
@@ -232,6 +318,13 @@ impl Input {
                         };
                         if a != 99 {
                             self.on_gamepad_axis(a, value);
+                            const DEAD: f32 = 0.22;
+                            let v = if value.abs() < DEAD { 0.0 } else { value };
+                            if a == 0 {
+                                self.pads[pi].mv.x = v;
+                            } else {
+                                self.pads[pi].mv.y = -v;
+                            }
                         }
                     }
                     gilrs::EventType::Connected => {
@@ -239,6 +332,10 @@ impl Input {
                     }
                     gilrs::EventType::Disconnected => {
                         self.gamepad_count = self.gamepad_count.saturating_sub(1);
+                        if let Some(p) = self.pads.get_mut(pi) {
+                            p.mv = glam::Vec2::ZERO;
+                            p.buttons.clear();
+                        }
                     }
                     _ => {}
                 }

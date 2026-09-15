@@ -63,6 +63,8 @@ pub struct Game {
     pub items_found: Vec<items::Item>,
     /// chest open animation set (index into level.chests already opened)
     pub opened: std::collections::HashSet<(i32, i32)>,
+    /// screen shake (amplitude décroissante, en unités monde)
+    pub shake: f32,
 }
 
 impl Game {
@@ -114,6 +116,7 @@ impl Game {
             kills: 0,
             items_found: Vec::new(),
             opened: std::collections::HashSet::new(),
+            shake: 0.0,
         };
 
         // spawn boss if any (deferred activation handled by arena proximity)
@@ -191,6 +194,7 @@ impl Game {
             return;
         }
         self.time += dt;
+        self.shake = (self.shake - dt * 2.6).max(0.0);
 
         // players
         for (i, input) in inputs.iter().enumerate() {

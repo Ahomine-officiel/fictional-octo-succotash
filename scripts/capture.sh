@@ -66,6 +66,13 @@ case "$MODE" in
     sleep 2; shot "${PREFIX}_mid_roll"
     sleep 2; shot "${PREFIX}_after_roll"
     ;;
+  coop)
+    MD_AUTO="${MD_AUTO:-0}" MD_COOP=1 MD_BOT=1 "$ROOT/target/release/mdungeons" > "$OUT/${PREFIX}_log.txt" 2>&1 &
+    GAME_PID=$!
+    sleep 7; shot "${PREFIX}_split_spawn"
+    sleep 5; shot "${PREFIX}_split_apart"
+    sleep 4; shot "${PREFIX}_split_combat"
+    ;;
   *)
     MID="${MODE}"
     MD_AUTO="$MID" MD_BOT=1 "$ROOT/target/release/mdungeons" > "$OUT/${PREFIX}_log.txt" 2>&1 &

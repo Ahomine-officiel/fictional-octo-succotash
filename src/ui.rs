@@ -21,6 +21,9 @@ pub struct Ui<'a> {
     pub w: f32,
     pub h: f32,
     pub mouse: (f32, f32),
+    /// facteur compact — écran scindé : HUD réduit pour tenir dans la moitié
+    /// (s'applique aux blocs via scale() ET au texte glyphé)
+    pub shrink: f32,
 }
 
 pub type Rect = [f32; 4]; // x, y, w, h
@@ -41,7 +44,7 @@ pub const BRONZE: [f32; 4] = [0.48, 0.35, 0.16, 1.0];
 
 impl<'a> Ui<'a> {
     pub fn scale(&self) -> f32 {
-        (self.h / 720.0).clamp(0.7, 2.0)
+        (self.h / 720.0).clamp(0.7, 2.0) * self.shrink
     }
 
     pub fn rect(&mut self, x: f32, y: f32, w: f32, h: f32, c: [f32; 4]) {
@@ -151,7 +154,7 @@ impl<'a> Ui<'a> {
     }
 
     pub fn measure(&self, s: &str, size: usize) -> f32 {
-        self.glyphs.measure(s, size)
+        self.glyphs.measure(s, size) * self.shrink
     }
 
     pub fn text(&mut self, s: &str, x: f32, y: f32, size: usize, c: [f32; 4]) -> f32 {
@@ -161,13 +164,14 @@ impl<'a> Ui<'a> {
     }
 
     fn text_inner(&mut self, s: &str, x: f32, y: f32, size: usize, c: [f32; 4]) -> f32 {
-        let mut pen = x;
+        let k = self.shrink;
+        let mut pen = 0.0f32;
         for ch in s.chars() {
             let g = self.glyphs.get(ch, size);
             if g.size[0] > 0.0 {
                 self.text.push(QuadInstance {
-                    pos: [pen + g.bearing[0], y + g.bearing[1]],
-                    size: g.size,
+                    pos: [x + (pen + g.bearing[0]) * k, y + g.bearing[1] * k],
+                    size: [g.size[0] * k, g.size[1] * k],
                     uv: g.uv,
                     color: c,
                     flag: 1.0,
@@ -176,7 +180,7 @@ impl<'a> Ui<'a> {
             }
             pen += g.advance;
         }
-        pen - x
+        pen * k
     }
 
     pub fn text_centered(&mut self, s: &str, cx: f32, y: f32, size: usize, c: [f32; 4]) {
@@ -785,17 +789,28 @@ pub fn draw_camp(
                 SIZE_SMALL,
                 DIM,
             );
+            // co-op écran scindé (J2 clavier flèches / manette)
+            let coop_idx = 4 + crate::world::missions::MISSIONS.len() + 3;
+            let coop_sel = sel == coop_idx;
+            let cr = [rx + 16.0 * s, y0 + 236.0 * s, rw - 32.0 * s, 40.0 * s];
+            ui.button(cr, "", coop_sel, true);
+            let state = if save.coop_p2 { "ACTIVÉ" } else { "DÉSACTIVÉ" };
+            let col = if save.coop_p2 { GREEN } else { DIM };
+            ui.text_bold("CO-OP ÉCRAN SCINDÉ", cr[0] + 14.0 * s, cr[1] + 5.0 * s, SIZE_SMALL, WHITE);
+            ui.text_bold(state, cr[0] + cr[2] - 14.0 * s - ui.measure(state, SIZE_SMALL), cr[1] + 5.0 * s, SIZE_SMALL, col);
+            ui.text("J2 : flèches + U O P / J K L / H / Y — ou manette", cr[0] + 14.0 * s, cr[1] + 24.0 * s, SIZE_SMALL, DIM);
+            rects.push(cr);
             // launch
-            let lr = [rx, y0 + 280.0 * s, rw, 64.0 * s];
-            ui.button(lr, "LANCER L'EXPÉDITION", sel == 4 + crate::world::missions::MISSIONS.len() + 3, true);
+            let lr = [rx, y0 + 296.0 * s, rw, 64.0 * s];
+            ui.button(lr, "LANCER L'EXPÉDITION", sel == 4 + crate::world::missions::MISSIONS.len() + 4, true);
             rects.push(lr);
             // camp tip
-            ui.panel(rx, y0 + 360.0 * s, rw, 150.0 * s, false);
-            ui.text("Le camp :", rx + 16.0 * s, y0 + 372.0 * s, SIZE_SMALL, ACCENT);
-            ui.text("— Marchand : équipement contre émeraudes", rx + 16.0 * s, y0 + 396.0 * s, SIZE_SMALL, WHITE);
-            ui.text("— Forgeron : améliore la puissance d'un objet", rx + 16.0 * s, y0 + 418.0 * s, SIZE_SMALL, WHITE);
-            ui.text("— Trouve les runes pour les missions secrètes !", rx + 16.0 * s, y0 + 440.0 * s, SIZE_SMALL, WHITE);
-            ui.text("Échap : retour au menu principal", rx + 16.0 * s, y0 + 464.0 * s, SIZE_SMALL, DIM);
+            ui.panel(rx, y0 + 376.0 * s, rw, 150.0 * s, false);
+            ui.text("Le camp :", rx + 16.0 * s, y0 + 388.0 * s, SIZE_SMALL, ACCENT);
+            ui.text("— Marchand : équipement contre émeraudes", rx + 16.0 * s, y0 + 412.0 * s, SIZE_SMALL, WHITE);
+            ui.text("— Forgeron : améliore la puissance d'un objet", rx + 16.0 * s, y0 + 434.0 * s, SIZE_SMALL, WHITE);
+            ui.text("— Trouve les runes pour les missions secrètes !", rx + 16.0 * s, y0 + 456.0 * s, SIZE_SMALL, WHITE);
+            ui.text("Échap : retour au menu principal", rx + 16.0 * s, y0 + 480.0 * s, SIZE_SMALL, DIM);
         }
         1 => {
             // merchant

@@ -26,6 +26,9 @@ pub struct Save {
     pub tier_unlocked: usize,
     pub players: Vec<PlayerSave>,
     pub missions_played: u32,
+    /// co-op local 2 joueurs (écran scindé) activé dans le camp
+    #[serde(default)]
+    pub coop_p2: bool,
 }
 
 impl Save {
@@ -39,6 +42,7 @@ impl Save {
             tier_unlocked: 0,
             players: vec![PlayerSave { inventory: Inventory::starting(), level: 1, xp: 0, skin: 0 }],
             missions_played: 0,
+            coop_p2: false,
         }
     }
 

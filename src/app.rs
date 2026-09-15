@@ -31,7 +31,7 @@ use crate::models::SkinRects;
 use crate::ui::{self, Ui};
 use crate::ui_mcd;
 use crate::world::missions::MISSIONS;
-use glam::{Vec2, Vec3, Vec4};
+use glam::{Mat4, Vec2, Vec3, Vec4};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, WindowEvent};
@@ -83,6 +83,8 @@ pub struct App {
     pub last_frame: std::time::Instant,
     pub game: Option<Game>,
     pub camera: Camera,
+    /// caméra du J2 (écran scindé — moitié droite)
+    pub camera2: Camera,
     pub xp_before: u32,
     pub mob_tp_done: bool,
     /// F3 debug overlay
@@ -141,6 +143,7 @@ impl App {
             last_frame: std::time::Instant::now(),
             game: None,
             camera: Camera::new(16.0 / 9.0),
+            camera2: Camera::new(8.0 / 9.0),
             xp_before: 0,
             mob_tp_done: false,
             debug: std::env::var("MD_DEBUG").is_ok(),
@@ -243,15 +246,28 @@ impl App {
             .seed
             .wrapping_add(mission_id as u64 * 7919)
             .wrapping_add(self.save.missions_played as u64 * 104729);
+        // le P2 rejoint si une manette est branchée, si le mode co-op est
+        // activé dans le camp (clavier J2) ou pour les captures (MD_COOP)
+        let wants_p2 = self.input.gamepad_count > 0
+            || self.save.coop_p2
+            || std::env::var("MD_COOP").is_ok();
         let mut players = Vec::new();
         for (i, ps) in self.save.players.iter().enumerate() {
-            if i >= 1 && self.input.gamepad_count == 0 {
-                break; // P2 needs a gamepad
+            if i >= 1 && !wants_p2 {
+                break; // pas de P2
             }
             let mut p = PlayerState::new(i, Vec2::ZERO);
             p.inventory = ps.inventory.clone();
             p.level = ps.level;
             p.xp = ps.xp;
+            p.hp = p.max_hp();
+            players.push(p);
+        }
+        // BUG FIX co-op : la sauvegarde ne contient qu'UN héros — le P2 doit
+        // être SYNTHÉTISÉ (inventaire de départ, Alex) sinon il ne rejoignait
+        // jamais, même manette branchée.
+        if wants_p2 && players.len() < 2 {
+            let mut p = PlayerState::new(1, Vec2::ZERO);
             p.hp = p.max_hp();
             players.push(p);
         }
@@ -276,6 +292,14 @@ impl App {
         self.camera.pitch_deg = consts::CAM_PITCH_DEG;
         self.camera.yaw_deg = consts::CAM_YAW_DEG;
         self.camera.dist = consts::CAM_DIST;
+        // caméra du J2 : même réglage, posée sur son spawn
+        if game.players.len() >= 2 {
+            let p1 = game.players[1].pos;
+            self.camera2.smooth = Vec3::new(p1.x, 0.0, p1.y);
+            self.camera2.pitch_deg = consts::CAM_PITCH_DEG;
+            self.camera2.yaw_deg = consts::CAM_YAW_DEG;
+            self.camera2.dist = consts::CAM_DIST;
+        }
         self.inv_open = false;
         self.inv_enchant = None;
         self.paused = false;
@@ -727,9 +751,11 @@ impl App {
         // game simulation
         if self.screen == Screen::Playing && !self.paused && !self.inv_open {
             if let Some(game) = self.game.as_mut() {
-                let mut inputs = vec![self.input.p1_input()];
-                if let Some(p2) = self.input.p2_input() {
-                    inputs.push(p2);
+                // écran scindé actif dès que 2 héros sont en mission
+                let p2_active = game.players.len() >= 2;
+                let mut inputs = vec![self.input.p1_input(p2_active)];
+                if p2_active {
+                    inputs.push(self.input.p2_input());
                 }
                 // MD_BOT: attract-mode — P1 walks and swings constantly
                 // (headless visual tests of combat VFX). MD_BOT=south walks
@@ -771,26 +797,37 @@ impl App {
                     }
                 }
                 // camera target
-                let alive: Vec<Vec2> = game
-                    .players
-                    .iter()
-                    .filter(|p| p.downed_t.is_none())
-                    .map(|p| p.pos)
-                    .collect();
-                let target = if alive.is_empty() {
-                    game.players.first().map(|p| p.pos).unwrap_or(Vec2::ZERO)
+                if game.players.len() >= 2 {
+                    // ÉCRAN SCINDÉ : chaque caméra suit SON héros (grossissement
+                    // fixe — les moitiés 8:9 n'ont pas besoin du zoom-out shared)
+                    let p0 = game.players[0].pos;
+                    let p1 = game.players[1].pos;
+                    self.camera.dist = consts::CAM_DIST;
+                    self.camera.update(Vec3::new(p0.x, 0.0, p0.y), dt);
+                    self.camera2.dist = consts::CAM_DIST;
+                    self.camera2.update(Vec3::new(p1.x, 0.0, p1.y), dt);
                 } else {
-                    alive.iter().sum::<Vec2>() / alive.len() as f32
-                };
-                let dist = game
-                    .players
-                    .iter()
-                    .filter(|p| p.downed_t.is_none())
-                    .map(|p| p.pos.distance(target))
-                    .fold(0.0f32, f32::max);
-                self.camera.dist = (consts::CAM_DIST + dist * 0.55).min(26.0);
-                self.camera
-                    .update(Vec3::new(target.x, 0.0, target.y), dt);
+                    let alive: Vec<Vec2> = game
+                        .players
+                        .iter()
+                        .filter(|p| p.downed_t.is_none())
+                        .map(|p| p.pos)
+                        .collect();
+                    let target = if alive.is_empty() {
+                        game.players.first().map(|p| p.pos).unwrap_or(Vec2::ZERO)
+                    } else {
+                        alive.iter().sum::<Vec2>() / alive.len() as f32
+                    };
+                    let dist = game
+                        .players
+                        .iter()
+                        .filter(|p| p.downed_t.is_none())
+                        .map(|p| p.pos.distance(target))
+                        .fold(0.0f32, f32::max);
+                    self.camera.dist = (consts::CAM_DIST + dist * 0.55).min(26.0);
+                    self.camera
+                        .update(Vec3::new(target.x, 0.0, target.y), dt);
+                }
                 // end conditions
                 if game.state == RunState::Victory {
                     self.finish_mission(true);
@@ -878,7 +915,7 @@ impl App {
 
     fn camp_rect_count(&self) -> usize {
         4 + match self.tab {
-            0 => MISSIONS.len() + 3 + 1, // missions + tiers + launch
+            0 => MISSIONS.len() + 3 + 2, // missions + tiers + co-op + launch
             1 => self.camp.stock.len(),
             2 => self.main_inventory().stash.len(),
             _ => 0,
@@ -912,6 +949,10 @@ impl App {
                         self.save.tier = tier;
                         self.save.store();
                     }
+                } else if i == MISSIONS.len() + 3 {
+                    // bascule co-op écran scindé (clavier J2 / manette)
+                    self.save.coop_p2 = !self.save.coop_p2;
+                    self.save.store();
                 } else {
                     // launch selected mission (last sel)
                     // find selected mission: track separately — launch uses last selected mission id
@@ -985,6 +1026,33 @@ impl App {
                 fog_src.map(|g| [g.level.fog.1, g.level.fog.2, 0.0, 0.0]).unwrap_or([30.0, 90.0, 0.0, 0.0])
             },
         };
+
+        // écran scindé : caméra J2 + fog identique (même niveau)
+        let split = self.screen == Screen::Playing
+            && self.game.as_ref().map(|g| g.players.len() >= 2).unwrap_or(false);
+        if split {
+            let mut cam2 = CameraUniform {
+                vp: self.camera2.view_proj.to_cols_array_2d(),
+                campos: [self.camera2.eye.x, self.camera2.eye.y, self.camera2.eye.z, 1.0],
+                fogcolor: frame.cam.fogcolor,
+                fogrange: frame.cam.fogrange,
+            };
+            // screen shake : décalage aléatoire de la caméra J2 aussi
+            if let Some(g) = self.game.as_ref() {
+                if g.shake > 0.001 {
+                    let (dx, dy) = shake_offset(g.shake);
+                    apply_shake(&mut cam2, dx, dy);
+                }
+            }
+            frame.cam2 = Some(cam2);
+        }
+        // screen shake J1 (une seule fois, après fog)
+        if let Some(g) = self.game.as_ref() {
+            if g.shake > 0.001 {
+                let (dx, dy) = shake_offset(g.shake);
+                apply_shake(&mut frame.cam, dx, dy);
+            }
+        }
 
         // world
         let mut world_drawn = false;
@@ -1086,6 +1154,73 @@ impl App {
     }
 
     fn draw_ui(&mut self, quads: &mut Vec<QuadInstance>, text: &mut Vec<QuadInstance>, w: f32, h: f32) {
+        // ---- ÉCRAN SCINDÉ : HUD par moitié, dessiné en premier ----
+        // (le reste de l'UI — pause/inventaire/fin — reste plein écran)
+        let split = self.screen == Screen::Playing
+            && self.game.as_ref().map(|g| g.players.len() >= 2).unwrap_or(false);
+        if split {
+            if let Some(game) = &self.game {
+                let half = w / 2.0;
+                let p2_pad = self.input.p2_on_pad();
+                // moitié gauche : J1 (clavier/souris)
+                {
+                    let mut u1 = Ui {
+                        quads: &mut *quads,
+                        text: &mut *text,
+                        glyphs: &self.glyphs,
+                        assets: &self.assets,
+                        w: half,
+                        h,
+                        mouse: self.input.mouse_pos,
+                        shrink: 0.74,
+                    };
+                    let _ = ui_mcd::draw_hud(&mut u1, game, &self.camera, 0, &ui_mcd::SCHEME_P1);
+                    ui_mcd::draw_player_tag(&mut u1, 0, self.time);
+                }
+                // moitié droite : J2 — dessinée à x=0 puis décalée sur CPU
+                let mut q2: Vec<QuadInstance> = Vec::new();
+                let mut t2: Vec<QuadInstance> = Vec::new();
+                {
+                    let mut u2 = Ui {
+                        quads: &mut q2,
+                        text: &mut t2,
+                        glyphs: &self.glyphs,
+                        assets: &self.assets,
+                        w: half,
+                        h,
+                        mouse: self.input.mouse_pos,
+                        shrink: 0.74,
+                    };
+                    let _ = ui_mcd::draw_hud(&mut u2, game, &self.camera2, 1, &ui_mcd::scheme_p2(p2_pad));
+                    ui_mcd::draw_player_tag(&mut u2, 1, self.time);
+                }
+                for mut q in q2 {
+                    q.pos[0] += half;
+                    quads.push(q);
+                }
+                for mut t in t2 {
+                    t.pos[0] += half;
+                    text.push(t);
+                }
+                // séparateur vertical : ombre + liseré doré fin
+                quads.push(QuadInstance {
+                    pos: [half - 3.0, 0.0],
+                    size: [6.0, h],
+                    uv: [0.0; 4],
+                    color: [0.02, 0.02, 0.03, 0.85],
+                    flag: 0.0,
+                    _pad: 0.0,
+                });
+                quads.push(QuadInstance {
+                    pos: [half + 3.0, 0.0],
+                    size: [1.5, h],
+                    uv: [0.0; 4],
+                    color: [0.55, 0.45, 0.22, 0.4],
+                    flag: 0.0,
+                    _pad: 0.0,
+                });
+            }
+        }
         let mut ui = Ui {
             quads,
             text,
@@ -1094,6 +1229,7 @@ impl App {
             w,
             h,
             mouse: self.input.mouse_pos,
+            shrink: 1.0,
         };
         match self.screen {
             Screen::MainMenu => {
@@ -1149,15 +1285,19 @@ impl App {
                     let mut y = 100.0 * s;
                     for line in [
                         "COMMANDES — Joueur 1 (clavier / souris)",
-                        "Déplacement : ZQSD / WASD / flèches     Attaque mêlée : clic gauche",
+                        "Déplacement : ZQSD / WASD     Attaque mêlée : clic gauche",
                         "Tir (visée auto) : clic droit    Roulade : Espace",
                         "Artefacts : 1 / 2 / 3    Potion : F    Interagir : E ou X",
                         "Inventaire : I ou Tab    Pause : Échap    Debug : F3",
                         "",
+                        "COMMANDES — Joueur 2 (clavier, écran scindé)",
+                        "Déplacement : flèches   Mêlée : U   Tir : O   Roulade : P",
+                        "Artefacts : J / K / L   Potion : H   Interagir : Y",
+                        "",
                         "COMMANDES — Joueur 2 (manette)",
                         "Déplacement : stick gauche   Mêlée : A/Croix   Tir : B/Cercle",
                         "Roulade : RB   Artefacts : X / Y / L2   Potion : LB   Interagir : haut",
-                        "(détection auto de la manette — menus : croix-directionnelle + A)",
+                        "(co-op à activer dans le camp — ou branche une manette)",
                     ] {
                         ui.text(line, x, y, SIZE_SMALL, if line.starts_with("COMMANDES") { crate::ui::ACCENT } else { crate::ui::WHITE });
                         y += 26.0 * s;
@@ -1189,12 +1329,14 @@ impl App {
                 }
             }
             Screen::Playing => {
-                let rects_hud = if let Some(game) = &self.game {
-                    ui_mcd::draw_hud(&mut ui, game, &self.camera)
-                } else {
-                    Vec::new()
-                };
-                let _ = rects_hud;
+                if let Some(game) = &self.game {
+                    // HUD plein écran uniquement hors split (le split l'a déjà dessiné)
+                    let split = game.players.len() >= 2;
+                    if !split {
+                        let rects_hud = ui_mcd::draw_hud(&mut ui, game, &self.camera, 0, &ui_mcd::SCHEME_P1);
+                        let _ = rects_hud;
+                    }
+                }
                 if self.inv_open {
                     let inv = self.save.players[self.inv_player.min(self.save.players.len() - 1)].inventory.clone();
                     let rects = ui::draw_inventory(&mut ui, &inv, self.inv_player, self.inv_sel, self.inv_enchant.clone());
@@ -1276,6 +1418,7 @@ impl ApplicationHandler for App {
             let gfx = pollster::block_on(Gfx::new(window.clone(), &self.assets, &self.glyphs));
             let (w, h) = gfx.size;
             self.camera.aspect = w as f32 / h as f32;
+            self.camera2.aspect = (w as f32 / 2.0) / h as f32;
             self.gfx = Some(gfx);
             self.window = Some(window);
         }
@@ -1291,6 +1434,8 @@ impl ApplicationHandler for App {
                 if let Some(gfx) = self.gfx.as_mut() {
                     gfx.resize(size.width, size.height);
                     self.camera.aspect = size.width as f32 / size.height.max(1) as f32;
+                    // écran scindé : chaque moitié a son propre aspect 8:9 env.
+                    self.camera2.aspect = (size.width as f32 / 2.0) / size.height.max(1) as f32;
                 }
             }
             WindowEvent::KeyboardInput { event, .. } => {
@@ -1335,3 +1480,21 @@ impl ApplicationHandler for App {
 // keep unused imports referenced
 #[allow(unused)]
 fn _t(_q: &QuadInstance, _p: &PickupKind, _e: &enemy::Enemy, _b: &BillboardInstance, _v: &Vec4) {}
+
+// ----------------------------------------------------------------------
+// Screen shake — translation de monde aléatoire appliquée AU VP (après
+// coup), donc l'effet n'est pas adouci par le lissage de caméra.
+// ----------------------------------------------------------------------
+
+fn shake_offset(amp: f32) -> (f32, f32) {
+    use rand::Rng;
+    let mut r = rand::thread_rng();
+    let a = amp.min(0.55);
+    (r.gen_range(-a..a), r.gen_range(-a..a))
+}
+
+/// Décale la matrice view-proj d'un tremblement (dx, dz en espace monde).
+fn apply_shake(cam: &mut CameraUniform, dx: f32, dy: f32) {
+    let m = Mat4::from_cols_array_2d(&cam.vp) * Mat4::from_translation(Vec3::new(dx, 0.0, dy));
+    cam.vp = m.to_cols_array_2d();
+}
