@@ -9,13 +9,13 @@ ROOT=/home/z/my-project/mdungeons
 OUT=$ROOT/scripts/preview
 mkdir -p "$OUT"
 
-export LD_LIBRARY_PATH=/tmp/egldirect:/tmp/vkroot/usr/lib/x86_64-linux-gnu:/tmp/localprefix/usr/lib/x86_64-linux-gnu
+export LD_LIBRARY_PATH=/tmp/vkroot/usr/lib/x86_64-linux-gnu:/tmp/localprefix/usr/lib/x86_64-linux-gnu
 export VK_DRIVER_FILES=/tmp/vkroot/usr/share/vulkan/icd.d/lvp_icd.json
 export VK_ICD_FILENAMES=/tmp/vkroot/usr/share/vulkan/icd.d/lvp_icd.json
 export LIBGL_ALWAYS_SOFTWARE=1
 export PKG_CONFIG_PATH=/tmp/localprefix/usr/lib/x86_64-linux-gnu/pkgconfig
 export DISPLAY=:97
-export PATH=/tmp/vkroot/usr/bin:$PATH
+export PATH=/tmp/xbin/usr/bin:/tmp/vkroot/usr/bin:$PATH
 
 pkill -9 -f "Xvfb :97" 2>/dev/null || true
 sleep 0.5
