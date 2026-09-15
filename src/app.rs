@@ -29,6 +29,7 @@ use crate::gfx::{BoxInstance, BillboardInstance, CameraUniform, FrameData, Gfx, 
 use crate::input::{Input, UINav};
 use crate::models::SkinRects;
 use crate::ui::{self, Ui};
+use crate::ui_mcd;
 use crate::world::missions::MISSIONS;
 use glam::{Vec2, Vec3, Vec4};
 use std::sync::Arc;
@@ -1108,7 +1109,7 @@ impl App {
                 } else {
                     (eq.iter().sum::<u32>() / eq.len() as u32).max(1)
                 };
-                let rects = ui::draw_main_menu(
+                let rects = ui_mcd::draw_main_menu(
                     &mut ui,
                     self.sel,
                     self.time,
@@ -1189,7 +1190,7 @@ impl App {
             }
             Screen::Playing => {
                 let rects_hud = if let Some(game) = &self.game {
-                    ui::draw_hud(&mut ui, game, &self.camera)
+                    ui_mcd::draw_hud(&mut ui, game, &self.camera)
                 } else {
                     Vec::new()
                 };
@@ -1208,7 +1209,7 @@ impl App {
                         }
                     }
                 } else if self.paused {
-                    let rects = ui::draw_pause(&mut ui, self.sel);
+                    let rects = ui_mcd::draw_pause(&mut ui, self.sel);
                     for (i, r) in rects.iter().enumerate() {
                         if ui.hotspot(*r) {
                             self.sel = i;
@@ -1218,7 +1219,7 @@ impl App {
             }
             Screen::End => {
                 if let Some(game) = &self.game {
-                    let rects = ui::draw_end(&mut ui, game, self.end_victory, self.sel, self.save.emeralds, self.xp_before);
+                    let rects = ui_mcd::draw_end(&mut ui, game, self.end_victory, self.sel, self.save.emeralds, self.xp_before);
                     for (i, r) in rects.iter().enumerate() {
                         if ui.hotspot(*r) {
                             self.sel = i;

@@ -8,6 +8,7 @@ mod gfx;
 mod input;
 mod models;
 mod ui;
+mod ui_mcd;
 mod world;
 mod game;
 
