@@ -124,7 +124,7 @@ assets/skins/skin.png
 - Format standard **64×64** (les skins 64×32 anciens sont convertis automatiquement).
 - Bras fins (slim/Alex) **détectés automatiquement**.
 - Les calques overlay (chapeau, veste, manches, pantalon) sont rendus.
-- Deux joueurs = même skin (P1 clavier/souris, P2 manette).
+- Deux joueurs = skins distincts (P1 au choix, P2 = Alex), écran scindé en co-op.
 
 ### 2.3 Police
 
@@ -158,7 +158,22 @@ annule. La tenue choisie est portée dans le menu ET en jeu.
 **Variables d'environnement (tests)** : `MD_AUTO=<id>` lance la mission `<id>` au démarrage,
 `MD_BOT` (ou `MD_BOT=south`) fait marcher/attaquer le J1 tout seul (captures),
 `MD_SCREEN=camp` ouvre directement le camp, `MD_SCREEN=hero` ouvre l'éditeur de héros,
-`MD_DEBUG=1` active F3 au lancement, `MD_NOTERR` vide le décor.
+`MD_DEBUG=1` active F3 au lancement, `MD_NOTERR` vide le décor, `MD_COOP` force le co-op,
+`MD_MUTE` coupe l'audio.
+
+**Joueur 2 (clavier) — ÉCRAN SCINDÉ** : activer « CO-OP ÉCRAN SCINDÉ » dans le camp
+(onglet Carte) ou brancher une manette. L'écran se coupe en deux moitiés, chacune avec
+sa caméra, son HUD compact et ses touches affichées. Les flèches passent alors du J1 au J2 :
+
+| Action        | Touche (stable AZERTY/QWERTY) |
+|---------------|-------------------------------|
+| Déplacement   | Flèches                       |
+| Mêlée         | U                             |
+| Tir           | O                             |
+| Roulade       | P                             |
+| Artefacts     | J / K / L                     |
+| Potion        | H                             |
+| Interagir     | Y                             |
 
 **Joueur 2 (manette)** — détection automatique, le joueur 2 rejoint à la création de la mission :
 
