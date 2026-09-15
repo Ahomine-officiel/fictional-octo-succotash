@@ -199,8 +199,8 @@ pub struct Attack(pub f32);
 pub fn spawn_enemy(world: &mut hecs::World, kind: &str, pos: Vec2, tier: usize) -> Entity {
     let def = def_for(kind);
     let tier = tier.min(2);
-    let hp = def.hp * consts::TIER_HP_MULT[tier];
-    let atk = def.atk * consts::TIER_ATK_MULT[tier];
+    let hp = def.hp * consts::TIER_HP_MULT[tier] * consts::ENEMY_HP_MULT;
+    let atk = def.atk * consts::TIER_ATK_MULT[tier] * consts::ENEMY_ATK_MULT;
     world.spawn((
         Enemy::new(kind),
         Pos(pos),

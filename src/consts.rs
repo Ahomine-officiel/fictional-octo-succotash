@@ -51,6 +51,10 @@ pub const INTERACT_RANGE: f32 = 1.8;
 pub const TIER_HP_MULT: [f32; 3] = [1.0, 3.8, 9.1];
 /// Attack multipliers: 70 -> 85 -> 100
 pub const TIER_ATK_MULT: [f32; 3] = [1.0, 1.21, 1.43];
+/// Rééquilibrage « c'était trop facile » : les packs frappent plus fort et
+/// encaissent mieux (multiplie les stats wiki de base).
+pub const ENEMY_HP_MULT: f32 = 1.25;
+pub const ENEMY_ATK_MULT: f32 = 1.35;
 
 // ---------------- XP / progression ----------------
 /// XP needed for level n -> n+1

@@ -520,13 +520,14 @@ pub fn generate(mission: &MissionDef, seed: u64) -> Level {
         table[0].0.to_string()
     };
     for pp in path_points.iter().skip(2) {
-        if rng.gen_bool(0.85) {
-            let count = 3 + (mission.threat / 6).min(4) + rng.gen_range(0..3);
+        if rng.gen_bool(0.9) {
+            // packs plus larges et plus fréquents (rééquilibrage difficulté)
+            let count = 4 + (mission.threat / 5).min(5) + rng.gen_range(0..3);
             let mut kinds = Vec::new();
             for _ in 0..count { kinds.push(pick_kind(&mut rng)); }
             groups.push(SpawnGroup {
                 pos: Vec2::new(pp.0 as f32 + 0.5, pp.1 as f32 + 0.5),
-                radius: 7.0,
+                radius: 8.0,
                 kinds,
                 count: count as u32,
                 activated: false,
@@ -536,7 +537,7 @@ pub fn generate(mission: &MissionDef, seed: u64) -> Level {
     // group guarding the arena entrance
     if mission.boss.is_none() {
         let mut kinds = Vec::new();
-        for _ in 0..(6 + mission.threat / 4) { kinds.push(pick_kind(&mut rng)); }
+        for _ in 0..(8 + mission.threat / 3) { kinds.push(pick_kind(&mut rng)); }
         let n = kinds.len() as u32;
         groups.push(SpawnGroup {
             pos: Vec2::new(arena.0 as f32 + 0.5, (arena.1 + 7) as f32),
