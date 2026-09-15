@@ -65,6 +65,8 @@ pub struct App {
     pub end_victory: bool,
     pub selected_mission: Option<usize>,
     pub time: f32,
+    /// timer d'affichage du toast « cheat F3+L » (déblocage)
+    pub cheat_toast_t: f32,
     pub last_frame: std::time::Instant,
     pub game: Option<Game>,
     pub camera: Camera,
@@ -120,6 +122,7 @@ impl App {
             end_victory: false,
             selected_mission: None,
             time: 0.0,
+            cheat_toast_t: 0.0,
             last_frame: std::time::Instant::now(),
             game: None,
             camera: Camera::new(16.0 / 9.0),
@@ -445,6 +448,24 @@ impl App {
         if self.input.key_pressed(KeyCode::F3) {
             self.debug = !self.debug;
         }
+        // F3 maintenu + L : cheat de déblocage — toutes les missions non
+        // secrètes complétées, tous les secrets trouvés, palier Apocalypse
+        if self.input.key(KeyCode::F3) && self.input.key_pressed(KeyCode::KeyL) {
+            let n = MISSIONS.len();
+            let done: Vec<usize> = (0..n).filter(|&i| !MISSIONS[i].is_secret).collect();
+            let secrets: Vec<usize> = (0..n).filter(|&i| MISSIONS[i].is_secret).collect();
+            log::info!(
+                "cheat F3+L : {} missions + {} secrets débloqués, palier Apocalypse",
+                done.len(),
+                secrets.len()
+            );
+            self.save.completed = done;
+            self.save.secrets_found = secrets;
+            self.save.tier_unlocked = 2;
+            self.save.store();
+            self.cheat_toast_t = 6.0;
+        }
+        self.cheat_toast_t = (self.cheat_toast_t - dt).max(0.0);
         // smooth FPS for the debug overlay
         let inst = 1.0 / dt.max(0.0001);
         self.fps += (inst - self.fps) * 0.06;
@@ -497,6 +518,16 @@ impl App {
             self.open_hero_editor();
             // park the preview on a hero-pack skin so captures show a change
             self.cycle_skin(2);
+        }
+        // headless visual test: MD_UNLOCK=1 simule le cheat F3+L (débloque tout)
+        if std::env::var("MD_UNLOCK").is_ok() && self.time > 1.5 && self.cheat_toast_t <= 0.0 && std::env::var("MD_UNLOCK_DONE").is_err() {
+            std::env::set_var("MD_UNLOCK_DONE", "1");
+            self.save.completed = (0..MISSIONS.len()).filter(|&i| !MISSIONS[i].is_secret).collect();
+            self.save.secrets_found = (0..MISSIONS.len()).filter(|&i| MISSIONS[i].is_secret).collect();
+            self.save.tier_unlocked = 2;
+            self.save.store();
+            self.cheat_toast_t = 6.0;
+            log::info!("MD_UNLOCK : {} missions + {} secrets + palier Apocalypse", self.save.completed.len(), self.save.secrets_found.len());
         }
         // headless visual test: MD_AUTO[=<mission id>] launches that mission automatically
         if std::env::var("MD_AUTO").is_ok() && self.screen == Screen::MainMenu && self.time > 1.0 {
@@ -1130,6 +1161,19 @@ impl App {
                 }
             }
         }
+        // toast « cheat F3+L » : bandeau doré centré
+        if self.cheat_toast_t > 0.0 {
+            let a = (self.cheat_toast_t / 0.6).min(1.0) as f32;
+            let msg = "TOUTES LES MISSIONS ET DIFFICULTÉS DÉBLOQUÉES (F3+L)";
+            let tw = ui.measure(msg, 0);
+            let cx = ui.w / 2.0;
+            let ty = ui.h * 0.14;
+            ui.rect(cx - tw / 2.0 - 18.0, ty - 8.0, tw + 36.0, 34.0, [0.32, 0.24, 0.02, 0.88 * a]);
+            ui.rect(cx - tw / 2.0 - 15.0, ty - 5.0, tw + 30.0, 28.0, [0.85, 0.66, 0.14, 0.95 * a]);
+            ui.rect(cx - tw / 2.0 - 12.0, ty - 2.0, tw + 24.0, 22.0, [0.14, 0.09, 0.01, 0.85 * a]);
+            let px = ui.glyphs.px(0);
+            ui.text(msg, cx - tw / 2.0, ty + 11.0 - px * 0.55, 0, [1.0, 0.87, 0.4, a]);
+        }
         // F3 debug overlay (on top of everything)
         if self.debug {
             let info = ui::DebugInfo {
@@ -1158,7 +1202,7 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
             let attrs = Window::default_attributes()
-                .with_title("Minecraft Dungeons — remake non officiel (usage privé)")
+                .with_title(concat!("Minecraft Dungeons — remake non officiel v", env!("CARGO_PKG_VERSION"), " (usage privé)"))
                 .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0));
             let window = Arc::new(event_loop.create_window(attrs).expect("window"));
             log::info!("window created inner_size={:?}", window.inner_size());

@@ -54,6 +54,18 @@ case "$MODE" in
     GAME_PID=$!
     sleep 6; shot "${PREFIX}_mission_debug"
     ;;
+  unlock)
+    MD_DEBUG=1 MD_UNLOCK=1 "$ROOT/target/release/mdungeons" > "$OUT/${PREFIX}_log.txt" 2>&1 &
+    GAME_PID=$!
+    sleep 8; shot "${PREFIX}_unlock_toast"
+    ;;
+  roll)
+    MD_AUTO=0 MD_BOT=1 MD_ROLL_AT="${MD_ROLL_AT:-3.5}" MD_ROLL_FREEZE="${MD_ROLL_FREEZE:-}" "$ROOT/target/release/mdungeons" > "$OUT/${PREFIX}_log.txt" 2>&1 &
+    GAME_PID=$!
+    sleep 6; shot "${PREFIX}_before_roll"
+    sleep 2; shot "${PREFIX}_mid_roll"
+    sleep 2; shot "${PREFIX}_after_roll"
+    ;;
   *)
     MID="${MODE}"
     MD_AUTO="$MID" MD_BOT=1 "$ROOT/target/release/mdungeons" > "$OUT/${PREFIX}_log.txt" 2>&1 &

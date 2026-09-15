@@ -1392,7 +1392,7 @@ pub fn draw_debug(ui: &mut Ui, game: Option<&Game>, info: &DebugInfo) {
     };
 
     let ms = if info.fps > 0.0 { 1000.0 / info.fps } else { 0.0 };
-    line(ui, format!("Minecraft Dungeons — remake non officiel ({})", info.screen), x, y);
+    line(ui, format!("Minecraft Dungeons — remake non officiel v{} ({})", env!("CARGO_PKG_VERSION"), info.screen), x, y);
     y += lh;
     line(ui, format!("{:.0} fps ({:.1} ms)  rendu : {} boîtes, {} billboards", info.fps, ms, info.boxes, info.billboards), x, y);
     y += lh;
