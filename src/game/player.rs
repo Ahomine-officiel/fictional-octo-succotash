@@ -201,6 +201,16 @@ pub fn update_player(game: &mut Game, idx: usize, input: &PlayerInput, dt: f32) 
         if p.roll_t > 0.0 {
             p.roll_t -= dt;
             p.anim.roll = 1.0 - (p.roll_t / consts::ROLL_TIME).max(0.0);
+            // traînée de poussière PENDANT le salto (décollage + réception)
+            let prev = p.roll_t + dt;
+            if ((p.roll_t * 22.0) as i32) != ((prev * 22.0) as i32) {
+                game.particles.spawn_burst(
+                    glam::Vec3::new(p.pos.x, 0.12, p.pos.y),
+                    2,
+                    glam::Vec4::new(0.62, 0.52, 0.38, 0.65),
+                    1.3,
+                );
+            }
             vel = p.roll_dir * consts::PLAYER_SPEED * consts::ROLL_SPEED_MULT;
         } else {
             p.anim.roll = 0.0;

@@ -1,0 +1,10 @@
+[INFO mdungeons::app] window created inner_size=PhysicalSize { width: 1280, height: 720 }
+[INFO mdungeons::gfx] gfx::new inner_size=PhysicalSize { width: 1280, height: 720 } scale=1
+[WARN wgpu_hal::vulkan::instance] Unable to find extension: VK_EXT_acquire_drm_display
+[WARN wgpu_hal::vulkan::instance] Unable to find extension: VK_EXT_direct_mode_display
+[WARN wgpu_hal::vulkan::instance] Unable to find extension: VK_KHR_display
+[WARN wgpu_hal::vulkan::instance] Unable to find extension: VK_EXT_physical_device_drm
+[WARN wgpu_hal::vulkan::instance] Unable to find extension: VK_KHR_get_display_properties2
+[INFO mdungeons::gfx] adapter: llvmpipe (LLVM 19.1.7, 256 bits) (Vulkan)
+[INFO mdungeons::gfx] frame 0: fmt=Bgra8UnormSrgb size=1280x720 tex=1280x720 config=1280x720 quads=120 text=557 boxes_atlas=0 boxes_skin=0 billboards=0
+[INFO mdungeons::app] menu backdrop scene ready (25433 boîtes)

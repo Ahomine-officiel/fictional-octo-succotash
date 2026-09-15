@@ -37,6 +37,9 @@ pub struct Assets {
     /// Hero skin catalog (hero editor). Index 0 = Steve-like, 1 = Alex (P2),
     /// then procedural MCD hero-pack variants.
     pub skin_catalog: Vec<SkinEntry>,
+    /// Couches d'armure vanilla prêtes (layer_1 teintée + layer_2), indexées
+    /// par classe : 0 = léger (cuir teinté), 1 = maille (fer), 2 = lourd (diamant).
+    pub armor_layers: Vec<(RgbaImage, RgbaImage)>,
     pub font: FontArc,
     base_dir: PathBuf,
 }
@@ -53,6 +56,7 @@ impl Assets {
             skin_slim: false,
             skin2_slim: false,
             skin_catalog: Vec::new(),
+            armor_layers: Vec::new(),
             font,
             base_dir,
         };
@@ -60,10 +64,38 @@ impl Assets {
         a.load_all_icons();
         a.load_all_ui();
         a.load_all_mob_textures();
+        a.load_armor_layers();
         a.load_skin_catalog();
         a.load_skin();
         a.bake_skin_portraits();
         a
+    }
+
+    /// Charge les couches d'armure vanilla extraites du client.jar
+    /// (assets/textures/minecraft/armor/&lt;classe&gt;_layer_&lt;1,2&gt;.png).
+    /// Le cuir est teinté brun (texture grise de base).
+    fn load_armor_layers(&mut self) {
+        let defs: [(&str, Option<[f32; 3]>); 3] = [
+            ("leather", Some([0.64, 0.42, 0.27])),
+            ("iron", None),
+            ("diamond", None),
+        ];
+        for (name, tint) in defs {
+            let l1 = self.load_png_raw(&format!("textures/minecraft/armor/{}_layer_1.png", name));
+            let l2 = self.load_png_raw(&format!("textures/minecraft/armor/{}_layer_2.png", name));
+            if let (Some(mut a), Some(mut b)) = (l1, l2) {
+                if let Some(t) = tint {
+                    for img in [&mut a, &mut b] {
+                        for px in img.pixels_mut() {
+                            px[0] = (px[0] as f32 * t[0]) as u8;
+                            px[1] = (px[1] as f32 * t[1]) as u8;
+                            px[2] = (px[2] as f32 * t[2]) as u8;
+                        }
+                    }
+                }
+                self.armor_layers.push((a, b));
+            }
+        }
     }
 
     /// Add a pre-painted 16x16 cell (used for skin portraits).
@@ -111,9 +143,38 @@ impl Assets {
         }
     }
 
+    /// Colle une couche d'armure vanilla (64x32) sur la demi-feuille de skin
+    /// 64x64 située à l'origine verticale `oy` (0 = joueur 1, 64 = joueur 2).
+    /// Regions : casque -> chapeau (32,0), plastron -> veste (16,32),
+    /// manches -> (40,32)/(48,48), jambières+bottes (layer 2) -> (0,32)/(0,48).
+    fn paste_armor(sheet: &mut RgbaImage, layer1: &RgbaImage, layer2: &RgbaImage, oy: u32) {
+        let mut copy = |sheet: &mut RgbaImage, src: &RgbaImage, sx: u32, sy: u32, sw: u32, sh: u32, dx: u32, dy: u32| {
+            for y in 0..sh {
+                for x in 0..sw {
+                    let p = *src.get_pixel(sx + x, sy + y);
+                    if p[3] > 0 {
+                        sheet.put_pixel(dx + x, dy + y, p);
+                    }
+                }
+            }
+        };
+        // casque (boîte 8x8x8 dépliée sur (32,0)-(64,16))
+        copy(sheet, layer1, 32, 0, 32, 16, 32, oy);
+        // plastron -> veste (overlay torse)
+        copy(sheet, layer1, 16, 16, 24, 16, 16, 32 + oy);
+        // manches (boîte unique vieux format) -> manche droite puis gauche
+        copy(sheet, layer1, 40, 16, 16, 16, 40, 32 + oy);
+        copy(sheet, layer1, 40, 16, 16, 16, 48, 48 + oy);
+        // jambières + bottes (layer 2) -> pantalon droit puis gauche
+        copy(sheet, layer2, 0, 16, 16, 16, 0, 32 + oy);
+        copy(sheet, layer2, 0, 16, 16, 16, 0, 48 + oy);
+    }
+
     /// Rebuild the combined 64x128 sheet with catalog entry `idx` as player 1
     /// and Alex (index 1) as player 2. Call + Gfx::update_skin to hot-swap.
-    pub fn rebuild_skin(&mut self, idx: usize) {
+    /// `armor1`/`armor2` : index de classe d'armure par joueur (0 = léger/cuir,
+    /// 1 = maille/fer, 2 = lourd/diamant, None = pas d'armure visible).
+    pub fn rebuild_skin(&mut self, idx: usize, armor1: Option<usize>, armor2: Option<usize>) {
         let idx = idx.min(self.skin_catalog.len().saturating_sub(1));
         let p1 = self.skin_catalog[idx].img.clone();
         let slim1 = self.skin_catalog[idx].slim;
@@ -126,6 +187,17 @@ impl Assets {
         let mut combined = RgbaImage::new(64, 128);
         image::imageops::overlay(&mut combined, &p1, 0, 0);
         image::imageops::overlay(&mut combined, &p2, 0, 64);
+        // armures portées : collées sur les couches overlay (visibles en jeu ET au menu)
+        if let Some(c) = armor1 {
+            if let Some((l1, l2)) = self.armor_layers.get(c.min(2)) {
+                Self::paste_armor(&mut combined, l1, l2, 0);
+            }
+        }
+        if let Some(c) = armor2 {
+            if let Some((l1, l2)) = self.armor_layers.get(c.min(2)) {
+                Self::paste_armor(&mut combined, l1, l2, 64);
+            }
+        }
         self.skin_slim = slim1;
         self.skin2_slim = slim2;
         self.skin = Some(combined);
@@ -504,7 +576,7 @@ impl Assets {
     // ------------------------------------------------------------------
     fn load_skin(&mut self) {
         // Combined sheet from the catalog: Steve (or files) as P1, Alex as P2.
-        self.rebuild_skin(0);
+        self.rebuild_skin(0, None, None);
     }
 
     pub fn base_dir(&self) -> &PathBuf {

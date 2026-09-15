@@ -389,11 +389,13 @@ impl Game {
                 ring,
                 0.0,
             ));
-            // shadow
+            // shadow : rétrécit et pâlit pendant l'arc du salto
+            let ap = (std::f32::consts::PI * p.anim.roll.clamp(0.0, 1.0)).sin();
+            let sc = 0.6 * (1.0 - 0.35 * ap);
             billboards.push(BillboardInstance::new(
                 Vec3::new(p.pos.x, 0.03, p.pos.y),
-                [0.6, 0.6],
-                Vec4::new(0.0, 0.0, 0.0, 0.4),
+                [sc, sc],
+                Vec4::new(0.0, 0.0, 0.0, 0.4 * (1.0 - 0.45 * ap)),
                 0.0,
             ));
         }

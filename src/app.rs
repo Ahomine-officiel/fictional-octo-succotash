@@ -5,7 +5,7 @@ use crate::assets::Assets;
 use crate::consts;
 use crate::game::combat::PickupKind;
 use crate::game::enemy;
-use crate::game::items::Enchant;
+use crate::game::items::{ArmorClass, Enchant, ItemClass};
 use crate::game::inventory::Inventory;
 use crate::game::player::PlayerState;
 use crate::game::progress::Save;
@@ -13,6 +13,18 @@ use crate::game::shop::{forge_price, forge_upgrade, Camp};
 use crate::game::{Game, RunState};
 use crate::gfx::camera::Camera;
 use crate::gfx::text::{GlyphCache, SIZE_SMALL};
+
+/// Index de classe d'armure portée (0 = léger/cuir, 1 = maille/fer,
+/// 2 = lourd/diamant) pour l'affichage du héros, None si rien d'équipé.
+fn armor_class_idx(inv: &Inventory) -> Option<usize> {
+    let a = inv.armor.as_ref()?;
+    match a.class {
+        ItemClass::A(ArmorClass::Light) => Some(0),
+        ItemClass::A(ArmorClass::Medium) => Some(1),
+        ItemClass::A(ArmorClass::Heavy) => Some(2),
+        _ => None,
+    }
+}
 use crate::gfx::{BoxInstance, BillboardInstance, CameraUniform, FrameData, Gfx, QuadInstance};
 use crate::input::{Input, UINav};
 use crate::models::SkinRects;
@@ -90,7 +102,9 @@ impl App {
         let save = Save::load();
         // restore the saved hero skin BEFORE building the skin sheet
         let saved = save.players.first().map(|p| p.skin).unwrap_or(0);
-        assets.rebuild_skin(saved.min(assets.skin_catalog.len().saturating_sub(1)));
+        let armor1 = save.players.first().and_then(|p| armor_class_idx(&p.inventory));
+        let armor2 = save.players.get(1).and_then(|p| armor_class_idx(&p.inventory));
+        assets.rebuild_skin(saved.min(assets.skin_catalog.len().saturating_sub(1)), armor1, armor2);
         // Combined 64x128 skin sheet: P1 (Steve/custom) at v=0, P2 (Alex) at v=64.
         let mut skins = Vec::new();
         skins.push(SkinRects::from_skin_at(assets.skin_slim, 0));
@@ -150,11 +164,30 @@ impl App {
     // Hero editor (skin selection)
     // ------------------------------------------------------------------
 
-    /// Rebuild assets + GPU texture + SkinRects so the menu hero wears `idx`.
+    /// Rebâtit la feuille de skins avec les armures équipées de chaque joueur
+    /// (appelé après équipement / ôtage / rebattre / achat boutique).
+    fn refresh_skin_armor(&mut self) {
+        let idx = self.save.players.first().map(|p| p.skin).unwrap_or(0);
+        let armor1 = self.save.players.first().and_then(|p| armor_class_idx(&p.inventory));
+        let armor2 = self.save.players.get(1).and_then(|p| armor_class_idx(&p.inventory));
+        let idx = idx.min(self.assets.skin_catalog.len().saturating_sub(1));
+        self.assets.rebuild_skin(idx, armor1, armor2);
+        self.skins[0] = SkinRects::from_skin_at(self.assets.skin_slim, 0);
+        if let Some(gfx) = self.gfx.as_mut() {
+            if let Some(img) = self.assets.skin.as_ref() {
+                gfx.update_skin(img);
+            }
+        }
+    }
+
+    /// Rebuild assets + GPU texture + SkinRects so the menu hero wears `idx`
+    /// (l'armure équipée reste portée pendant l'aperçu).
     fn preview_skin(&mut self, idx: usize) {
         let n = self.assets.skin_catalog.len().saturating_sub(1);
         self.hero_sel = if idx > n { n } else { idx };
-        self.assets.rebuild_skin(self.hero_sel);
+        let armor1 = self.save.players.first().and_then(|p| armor_class_idx(&p.inventory));
+        let armor2 = self.save.players.get(1).and_then(|p| armor_class_idx(&p.inventory));
+        self.assets.rebuild_skin(self.hero_sel, armor1, armor2);
         self.skins[0] = SkinRects::from_skin_at(self.assets.skin_slim, 0);
         if let Some(gfx) = self.gfx.as_mut() {
             if let Some(img) = self.assets.skin.as_ref() {
@@ -350,6 +383,7 @@ impl App {
                             self.inv_item_sel = item_sel.min(5);
                         }
                     }
+                    self.refresh_skin_armor();
                     self.inv_sel = 100;
                 }
                 1 => {
@@ -396,6 +430,7 @@ impl App {
                             self.save.emeralds += emeralds;
                             self.save.store();
                             self.inv_item_sel = item_sel.saturating_sub(1).max(6);
+                            self.refresh_skin_armor();
                         }
                     }
                     self.inv_sel = 102;
@@ -427,6 +462,7 @@ impl App {
                 inv.equip(it);
             }
         }
+        self.refresh_skin_armor();
         self.save.store();
     }
 
@@ -704,6 +740,35 @@ impl App {
                     inputs[0].ranged = !south && self.time % 2.0 < 1.0;
                 }
                 game.update(dt, &inputs);
+                // headless visual test: MD_ROLL_AT=<t> déclenche une roulade
+                // à t secondes de jeu (planche contact du salto)
+                if let Ok(t) = std::env::var("MD_ROLL_AT") {
+                    let at: f32 = t.parse().unwrap_or(3.5);
+                    if game.time >= at && std::env::var("MD_ROLL_FIRED").is_err() {
+                        std::env::set_var("MD_ROLL_FIRED", "1");
+                        if let Some(p) = game.players.first_mut() {
+                            if p.roll_t <= 0.0 {
+                                p.roll_t = consts::ROLL_TIME;
+                                p.roll_cd = consts::ROLL_COOLDOWN;
+                                p.roll_dir = p.forward();
+                                p.iframes = p.iframes.max(consts::ROLL_TIME);
+                                log::info!("MD_ROLL_AT : roulade déclenchée à t={:.2}", game.time);
+                            }
+                        }
+                    }
+                }
+                // headless visual test: MD_ROLL_FREEZE=<0..1> fige le salto à
+                // cette progression (pose exacte pour captures)
+                if let Ok(fp) = std::env::var("MD_ROLL_FREEZE") {
+                    if let Ok(f) = fp.parse::<f32>() {
+                        if let Some(p) = game.players.first_mut() {
+                            p.roll_t = consts::ROLL_TIME;
+                            p.anim.roll = f.clamp(0.0, 1.0);
+                            // salto sur place (pas de dérive pendant la capture)
+                            p.roll_dir = Vec2::ZERO;
+                        }
+                    }
+                }
                 // camera target
                 let alive: Vec<Vec2> = game
                     .players
@@ -864,6 +929,7 @@ impl App {
                         self.camp.stock.remove(i);
                         self.save.players[0].inventory.equip(item);
                         self.save.store();
+                        self.refresh_skin_armor();
                     }
                 }
             }

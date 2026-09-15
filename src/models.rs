@@ -802,6 +802,11 @@ pub fn push_model(
 }
 
 /// Push the player model from a 64x64 skin texture (uv rects normalized directly).
+///
+/// Roulade = salto lovée lisible : arc de saut (0.55), boule (membres compressés
+/// de 45 % vers le centre), pose de tuck verrouillée (jambes 1.85 rad / bras
+/// 1.55 rad, engagée en 10 % du mouvement) et squash & stretch (aplati à
+/// l'impulsion/réception, étiré au sommet de l'arc).
 pub fn push_player(
     out: &mut Vec<crate::gfx::BoxInstance>,
     skin: &SkinRects,
@@ -811,15 +816,29 @@ pub fn push_player(
     tint: Vec4,
 ) {
     let q_yaw = Quat::from_rotation_y(yaw);
-    let (q_body, body_drop) = if anim.roll > 0.0 {
+    // ---- salto lovée ----
+    // rotation de salto ORBITANT autour du centre du corps (0.9 au-dessus des
+    // pieds) — sans ça, chaque boîte tourne sur elle-même (ancien bug « roll
+    // catastrophe »). Mort : chute autour des pieds (pivot au sol).
+    let rolling = anim.roll > 0.0;
+    let r = anim.roll.clamp(0.0, 1.0);
+    let apex = (std::f32::consts::PI * r).sin(); // 0 -> 1 -> 0
+    let (q_flip, lift, orbit): (Quat, f32, Vec3) = if rolling {
         (
-            q_yaw * Quat::from_axis_angle(Vec3::X, -anim.roll * std::f32::consts::TAU),
-            -0.2 * (1.0 - (anim.roll * 2.0 - 1.0).abs()),
+            Quat::from_axis_angle(Vec3::X, -r * std::f32::consts::TAU),
+            0.55 * apex, // arc de saut : monte puis retombe
+            Vec3::new(0.0, 0.9, 0.0),
         )
     } else if anim.dead > 0.0 {
-        (q_yaw * Quat::from_axis_angle(Vec3::X, anim.dead * 1.4), -0.25 * anim.dead)
+        (Quat::from_axis_angle(Vec3::X, anim.dead * 1.4), -0.25 * anim.dead, Vec3::ZERO)
     } else {
-        (q_yaw, 0.0)
+        (Quat::IDENTITY, 0.0, Vec3::ZERO)
+    };
+    // squash & stretch : aplati à l'impulsion/réception, étiré au sommet
+    let (sy, sxz) = if rolling {
+        (0.84 + 0.28 * apex, 1.12 - 0.16 * apex)
+    } else {
+        (1.0, 1.0)
     };
     let walk = anim.walk_phase;
     let mv = anim.moving;
@@ -831,12 +850,14 @@ pub fn push_player(
     };
 
     let geometry = player_model(skin.slim);
+    // tuck verrouillé : engagé dans les 10 premiers % du salto
+    let tuck = if rolling { (r * 10.0).min(1.0) } else { 0.0 };
     let part_angle = |id: PartId| -> f32 {
         match id {
-            PartId::LegL => walk.sin() * 0.7 * mv,
-            PartId::LegR => -walk.sin() * 0.7 * mv,
-            PartId::ArmL => -walk.sin() * 0.55 * mv,
-            PartId::ArmR => walk.sin() * 0.55 * mv + swing_a,
+            PartId::LegL => walk.sin() * 0.7 * mv * (1.0 - tuck) + 1.85 * tuck,
+            PartId::LegR => -walk.sin() * 0.7 * mv * (1.0 - tuck) + 1.85 * tuck,
+            PartId::ArmL => -walk.sin() * 0.55 * mv * (1.0 - tuck) + 1.55 * tuck,
+            PartId::ArmR => walk.sin() * 0.55 * mv * (1.0 - tuck) + 1.55 * tuck + swing_a * (1.0 - tuck),
             _ => 0.0,
         }
     };
@@ -848,13 +869,23 @@ pub fn push_player(
         }
         let local_a = part_angle(*id);
         let q_loc = Quat::from_axis_angle(Vec3::X, local_a);
-        let q = q_body * q_loc;
-        let center = pos + Vec3::new(0.0, body_drop, 0.0) + q_yaw * (*pivot + q_loc * *offset);
+        let q = q_yaw * q_flip * q_loc;
+        // membres lovés : raccourcis (-45 %) et tirés vers le centre du corps
+        let is_limb = matches!(id, PartId::ArmL | PartId::ArmR | PartId::LegL | PartId::LegR);
+        let curl = if rolling && is_limb { tuck } else { 0.0 };
+        let shrink = 1.0 - 0.45 * curl;
+        let off = *offset * (1.0 - 0.4 * curl);
+        let s = Vec3::new(size.x * shrink * sxz, size.y * shrink * sy, size.z * shrink * sxz);
+        // orbite de salto autour du centre du corps (les parties au-dessus du
+        // centre passent DESSOUS pendant le flip — vraie roulade)
+        let center = pos
+            + Vec3::new(0.0, lift, 0.0)
+            + q_yaw * (orbit + q_flip * ((*pivot - orbit) + q_loc * off));
         let rects = &skin.parts[i];
         out.push(crate::gfx::BoxInstance::new(
             center,
             q,
-            *size,
+            s,
             [
                 u16rect_to_f32(rects[0]),
                 u16rect_to_f32(rects[1]),
