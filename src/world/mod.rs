@@ -1,6 +1,7 @@
 //! Level representation: tile grid, blocks, decor, collision.
 
 pub mod gen;
+pub mod realmaps;
 pub mod missions;
 
 use crate::assets::Assets;

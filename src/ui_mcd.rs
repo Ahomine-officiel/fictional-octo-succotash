@@ -414,7 +414,9 @@ pub fn draw_hud(ui: &mut Ui, game: &Game, cam: &Camera) -> Vec<Rect> {
 
     // ---- toast d'événement (portail / boss) : losange or + « Nouvel événement » ----
     {
-        let portal_active = game.level.portal.map(|(_, a)| a).unwrap_or(false);
+        let total_captives = game.level.captives.len() as u32;
+        let captives_done = total_captives == 0 || game.captives_rescued >= total_captives;
+        let portal_active = game.level.portal.map(|(_, a)| a).unwrap_or(false) && captives_done;
         let boss_hurt = game
             .boss_entity
             .and_then(|e| game.world.get::<&crate::game::Health>(e).ok())

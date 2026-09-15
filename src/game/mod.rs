@@ -72,7 +72,12 @@ impl Game {
     }
 
     pub fn new(mission: &MissionDef, tier: usize, seed: u64, players: Vec<PlayerState>) -> Game {
-        let level = gen::generate(mission, seed);
+        // carte RÉELLE authorée quand elle existe (tracé fixe façon MCD),
+        // sinon génération procédurale de secours
+        let level = match crate::world::realmaps::lookup(mission.id) {
+            Some(map) => crate::world::realmaps::build(mission, seed, map),
+            None => gen::generate(mission, seed),
+        };
         let mut world = World::new();
 
         // captive NPCs near cages
